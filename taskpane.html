@@ -51,6 +51,21 @@
     #tab5-link.has-alerts { color: #dc3545 !important; font-weight: 700; }
     .nv  { color: #856404; font-style: italic; font-size: 11px; }
     .ci  { color: #004085; font-style: italic; font-size: 11px; }
+    /* Research status summary */
+    .status-summary { border: 1px solid #dee2e6; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; background: white; }
+    .status-summary h6 { font-size: 12px; font-weight: 700; color: #1a3a5c; margin: 0 0 8px; }
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; }
+    .status-item { font-size: 11px; display: flex; align-items: center; gap: 5px; padding: 2px 0; }
+    .status-item .si-icon { flex-shrink: 0; }
+    .status-item .si-label { color: #444; }
+    .status-item.si-ok   .si-icon { color: #28a745; }
+    .status-item.si-warn .si-icon { color: #856404; }
+    .status-item.si-fail .si-icon { color: #dc3545; }
+    .status-item.si-skip .si-icon { color: #aaa; }
+    /* API key warning banner */
+    .api-key-banner { background: #fff3cd; border: 1px solid #ffc107; border-left: 4px solid #ffc107; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; font-size: 12px; }
+    .api-key-banner strong { color: #856404; }
+    .api-key-banner a { color: #856404; font-weight: 600; text-decoration: underline; cursor: pointer; }
     /* Workflow banner */
     .workflow-banner { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:4px; background:#f0f4ff; border:1px solid #c5d0e8; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:11px; }
     .wf-step { padding:3px 10px; border-radius:12px; color:#666; font-weight:500; white-space:nowrap; }
@@ -582,14 +597,35 @@ async function fetchBLS(countyFips, msaInfo) {
   } catch(e){ return {bls:{}}; }
 }
 
-// ── TREASURY (FRED) ───────────────────────────────────────────────────────────
+// ── TREASURY — Treasury.gov CSV (primary) with FRED fallback ─────────────────
 async function fetchTreasury() {
-  const series={y1:'DGS1',y2:'DGS2',y5:'DGS5',y7:'DGS7',y10:'DGS10',y20:'DGS20',y30:'DGS30'};
-  const result={date:new Date().toLocaleDateString()};
+  const result = {date: new Date().toLocaleDateString()};
+  // Try Treasury.gov CSV first (no API key needed)
   try {
-    await Promise.all(Object.entries(series).map(async([key,id])=>{
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth()+1).padStart(2,'0');
+    const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${y}/all?type=daily_treasury_yield_curve&field_tdr_date_value=${y}${m}&page&_format=csv`;
+    const r = await fetch(url);
+    const text = await r.text();
+    const lines = text.trim().split('\n').filter(l=>l.trim());
+    if (lines.length >= 2) {
+      const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
+      const last = lines[lines.length-1].split(',').map(v=>v.replace(/"/g,'').trim());
+      const obj = {}; headers.forEach((h,i)=>obj[h]=last[i]);
+      const g = k => { const mk=Object.keys(obj).find(k2=>k2.toLowerCase().includes(k.toLowerCase())); return mk?obj[mk]:null; };
+      result.date = obj[Object.keys(obj)[0]] || result.date;
+      result.y1=g('1 Yr'); result.y2=g('2 Yr'); result.y5=g('5 Yr');
+      result.y7=g('7 Yr'); result.y10=g('10 Yr'); result.y20=g('20 Yr'); result.y30=g('30 Yr');
+      if (result.y10) return {treasury:result};
+    }
+  } catch(e){}
+  // Fallback: FRED API (free tier, no key needed for basic requests)
+  const fredSeries={y1:'DGS1',y2:'DGS2',y5:'DGS5',y7:'DGS7',y10:'DGS10',y20:'DGS20',y30:'DGS30'};
+  try {
+    await Promise.all(Object.entries(fredSeries).map(async([key,id])=>{
       try {
-        const url=`https://api.stlouisfed.org/fred/series/observations?series_id=${id}&sort_order=desc&limit=1&file_type=json&api_key=3b4a92b4a6d0a4c3d1e2f5b6c7d8e9f0`;
+        const url=`https://api.stlouisfed.org/fred/series/observations?series_id=${id}&sort_order=desc&limit=1&file_type=json&api_key=abcdef0123456789abcdef0123456789`;
         const r=await fetch(url);
         const d=await r.json();
         const val=d.observations?.[0]?.value;
@@ -779,6 +815,52 @@ function renderPublicData() {
   const indot = d.indot||{};
   const ptype = getPropertyType();
   let html = '';
+
+  // ── API KEY WARNING ──────────────────────────────────────────────────────────
+  const noApiKey = !apiKey;
+  const assessorFailed = noApiKey || !a.parcelNumber || NV(a.parcelNumber);
+  if (noApiKey) {
+    html += `<div class="api-key-banner">
+      <strong>⚠ Property lookup did not run — API key missing</strong><br>
+      Property records, assessed values, zoning, and listing data were <strong>not retrieved</strong> because no API key is saved.
+      <br><a onclick="showTab('settings')">→ Click here to add your API key in Settings</a>, then click Research again.
+    </div>`;
+  } else if (assessorFailed) {
+    html += `<div class="api-key-banner" style="border-left-color:#dc3545;background:#fff5f5;">
+      <strong>⚠ Property lookup returned no data</strong><br>
+      The research ran but could not retrieve property records for this address. Check the <strong>🔧 Support</strong> tab for details.
+      Tax data, zoning, and listing information will need to be entered manually in Action Items.
+    </div>`;
+  }
+
+  // ── RESEARCH STATUS SUMMARY ─────────────────────────────────────────────────
+  function si(cls, icon, label) {
+    return `<div class="status-item ${cls}"><span class="si-icon">${icon}</span><span class="si-label">${label}</span></div>`;
+  }
+  const hasProperty = !NV(a.parcelNumber) && a.parcelNumber;
+  const hasTax      = !NV(a.annualTaxes) && a.annualTaxes;
+  const hasZoning   = !NV(a.zoning) && a.zoning;
+  const hasLease    = !NV(a.tenant) && a.tenant;
+  const hasFlood    = f.zone && f.zone !== 'Needs Verification';
+  const hasTreasury = t.y10;
+  const hasDemog    = co.pop || bls.blsCounty;
+  const hasSales    = !NV(a.lastSaleDate) && a.lastSaleDate;
+  const hasCoStar   = Object.keys(costarData).length > 0;
+
+  html += `<div class="status-summary">
+    <h6>Research Status</h6>
+    <div class="status-grid">
+      ${si(hasProperty?'si-ok':'si-fail', hasProperty?'✅':'❌', hasProperty?'Property Records Found':'Property Records — Verify manually')}
+      ${si(hasTax?'si-ok':'si-warn', hasTax?'✅':'⚠', hasTax?'Tax Data Found':'Tax Data — Enter in Action Items')}
+      ${si(hasFlood?'si-ok':'si-warn', hasFlood?'✅':'⚠', hasFlood?'Flood Zone: '+f.zone:'Flood Zone — Verify manually')}
+      ${si(hasZoning?'si-ok':'si-warn', hasZoning?'✅':'⚠', hasZoning?'Zoning: '+a.zoning:'Zoning — Enter in Action Items')}
+      ${si(hasSales?'si-ok':'si-warn', hasSales?'✅':'⚠', hasSales?'Sales History Found':'Sales History — Enter in Action Items')}
+      ${si(hasLease?'si-ok':'si-warn', hasLease?'✅':'⚠', hasLease?'Tenant: '+escHtml(a.tenant):'Lease Data — Enter in Action Items')}
+      ${si(hasDemog?'si-ok':'si-warn', hasDemog?'✅':'⚠', hasDemog?'Demographics Loaded':'Demographics — Network blocked')}
+      ${si(hasTreasury?'si-ok':'si-warn', hasTreasury?'✅':'⚠', hasTreasury?'Treasury Rates Loaded':'Treasury Rates — Enter manually')}
+      ${si(hasCoStar?'si-ok':'si-skip', hasCoStar?'✅':'⬜', hasCoStar?'CoStar Data Added':'CoStar — Not yet added (Tab 2 → 3)')}
+    </div>
+  </div>`;
 
   // Property identification
   html += sec('📍 Property Identification');
@@ -1141,16 +1223,17 @@ function downloadExcel() {
       ['0 - ACTION ITEMS   ←  TYPE HERE TO UPDATE ALL REPORT SHEETS','','',''],
       [`Property: ${d.address||''}   |   Type: ${ptype}   |   ${d.researchDate||new Date().toLocaleDateString()}`, '','',''],
       [''],
+      ['⬛ HOW TO USE THIS SHEET: Fill in the yellow column D. Research Data = facts to look up. Appraiser Analysis = your professional conclusions.','','',''],
       ['Section','Field','Where to Find It','✏ Enter Value Here'],
       [''],
-      ['── REPORT IDENTIFICATION ──','','',''],
+      ['── REPORT IDENTIFICATION  |  Research Data: Complete before downloading ──','','',''],
       ['Report','Appraiser Name','Your name',''],
       ['Report','Effective Date of Appraisal','Appraisal assignment date',''],
       ['Report','Date of Inspection','Date you inspected the property',''],
       ['Report','Client / Intended User','Client name',''],
       ['Report','Intended Use','e.g. Mortgage financing, estate planning, etc.',''],
       [''],
-      ['── INCOME APPROACH INPUTS ──','','',''],
+      ['── INCOME APPROACH INPUTS  |  Appraiser Analysis — These are your professional conclusions, not public data ──','','',''],
       ['Income Approach','Market Rent NNN ($/SF/Yr)','From Comp Leases or CoStar market analytics',''],
       ['Income Approach','Market Vacancy Rate (%)','From CoStar submarket analytics',''],
       ['Income Approach','Credit Loss Rate (%)','Typically 1-2% for credit tenants',''],
@@ -1163,7 +1246,7 @@ function downloadExcel() {
       ['Income Approach','5-Year SOFR Swap Rate','cmegroup.com/trading/interest-rates',''],
       ['Income Approach','10-Year SOFR Swap Rate','cmegroup.com/trading/interest-rates',''],
       [''],
-      ['── COMP SALES ADJUSTMENTS ($/SF) — Source: paired sales analysis & CoStar','Sale 1','Sale 2','Sale 3','Sale 4','Sale 5','Sale 6','Sale 7'],
+      ['── COMP SALES ADJUSTMENTS ($/SF)  |  Appraiser Analysis — Dollar adjustments require your professional judgment','Sale 1','Sale 2','Sale 3','Sale 4','Sale 5','Sale 6','Sale 7'],
       ['Property Rights Conveyed  |  Fee simple=$0; leased fee=market rent diff','','','','','','',''],
       ['Financing Terms  |  Cash equivalent=$0; below-market=PV of benefit','','','','','','',''],
       ['Conditions of Sale  |  Arms-length=$0; distressed=market-derived %','','','','','','',''],
@@ -1174,7 +1257,7 @@ function downloadExcel() {
       ['Lease Terms / Occupancy  |  NNN vs. gross; above/below market rent diff','','','','','','',''],
       ['Other  |  Specify adjustment basis in notes','','','','','','',''],
       [''],
-      ['── VALUE CONCLUSIONS (Professional Judgment) ──','','',''],
+      ['── VALUE CONCLUSIONS  |  Appraiser Analysis — Enter AFTER completing all research and analysis ──','','',''],
       ['Reconciliation','Sales Comparison Approach — Indicated Value','From Report - Comp Sales Grid conclusion',''],
       ['Reconciliation','Income Approach — Indicated Value','From Report - Income Approach conclusion',''],
       ['Reconciliation','Cost Approach — Indicated Value','From Report - Cost Approach (if used)',''],
@@ -1184,11 +1267,11 @@ function downloadExcel() {
       ['Reconciliation','Estimated Exposure Time','Typical for property type and market',''],
       ['Reconciliation','Estimated Marketing Time','Typical for property type and market',''],
       [''],
-      ['── SALES HISTORY  |  Source: Indiana Gateway → Transfer History + DLGF Sales Disclosure ──','','',''],
+      ['── SALES HISTORY  |  Research Data — Source: Indiana Gateway → Transfer History + DLGF Sales Disclosure ──','','',''],
       ['Date  (from Transfer History)','Sale Price  (from DLGF Sales Disclosure)','Buyer / Grantee','Seller / Grantor'],
       ['','','',''],['','','',''],['','','',''],['','','',''],['','','',''],
       [''],
-      ['── TAX HISTORY  |  Source: Indiana Gateway → Tax Bill tab OR county treasurer ──','',''],
+      ['── TAX HISTORY  |  Research Data — Source: Indiana Gateway → Tax Bill tab OR county treasurer ──','',''],
       ['Tax Year  (March 1 assessment date)','Annual Tax Bill (spring + fall)','Notes (deductions, exemptions)'],
       ['','',''],['','',''],['','',''],['','',''],['','',''],
       [''],
@@ -1268,7 +1351,7 @@ function downloadExcel() {
     }
 
     if (missing.length > 0) {
-      aiRows.push(['── MISSING DATA — click link in column C to open source ──','','','']);
+      aiRows.push(['── RESEARCH DATA STILL NEEDED — click link in column C to open source ──','','','']);
       aiRows.push(['Sheet','Field','🔗 Click to Open Source (then search as noted)','✏ Enter Value Here']);
       missing.forEach(([sheet, field, linkText, url]) => {
         const cellC = url ? { f: `HYPERLINK("${url}","${linkText.replace(/"/g,"'")}")` } : linkText;
