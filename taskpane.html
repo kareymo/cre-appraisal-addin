@@ -1,834 +1,1153 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>CRE Appraisal Research</title>
-<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-<style>
-  :root {
-    --blue:#1a56a0; --blue-light:#e8f0fb; --blue-mid:#c2d6f5;
-    --green:#1a6b3a; --green-light:#e6f4ec;
-    --amber:#7a4f00; --amber-light:#fff3cd;
-    --red:#a01a1a; --red-light:#fce8e8;
-    --gray1:#f5f5f5; --gray2:#e8e8e8; --gray3:#999; --gray4:#444;
-    --text:#1a1a1a; --border:#d0d0d0; --radius:4px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',sans-serif;font-size:12px;color:var(--text);background:#fff}
-
-  .header{background:var(--blue);color:#fff;padding:10px 12px 8px}
-  .header h1{font-size:13px;font-weight:600;margin-bottom:2px}
-  .header p{font-size:10px;opacity:.8}
-
-  .tabs{display:flex;border-bottom:1px solid var(--border);background:#fff}
-  .tab{flex:1;padding:7px 4px;font-size:11px;text-align:center;cursor:pointer;
-       color:var(--gray3);border:none;background:none;border-bottom:2px solid transparent}
-  .tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
-  .tab:hover:not(.active){color:var(--text)}
-
-  .panel{display:none;padding:10px 12px}.panel.active{display:block}
-
-  label{display:block;font-size:11px;font-weight:600;margin-bottom:3px;color:var(--gray4)}
-  input[type="text"],input[type="password"],textarea,select{
-    width:100%;padding:6px 8px;font-size:12px;
-    border:1px solid var(--border);border-radius:var(--radius);
-    font-family:'Segoe UI',sans-serif}
-  input:focus,textarea:focus{outline:none;border-color:var(--blue)}
-  textarea{resize:vertical;min-height:80px;font-size:11px}
-
-  .btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;
-       font-size:12px;font-weight:600;border-radius:var(--radius);cursor:pointer;border:none}
-  .btn-primary{background:var(--blue);color:#fff;width:100%;justify-content:center}
-  .btn-primary:hover{background:#144888}
-  .btn-primary:disabled{opacity:.5;cursor:not-allowed}
-  .btn-sm{padding:4px 10px;font-size:11px;background:var(--gray1);
-          color:var(--gray4);border:1px solid var(--border)}
-  .btn-sm:hover{background:var(--gray2)}
-
-  .alert{display:flex;align-items:flex-start;gap:6px;padding:7px 9px;
-         border-radius:var(--radius);font-size:11px;margin-bottom:8px;line-height:1.4}
-  .alert-info{background:var(--blue-light);color:var(--blue)}
-  .alert-success{background:var(--green-light);color:var(--green)}
-  .alert-warn{background:var(--amber-light);color:var(--amber)}
-  .alert-error{background:var(--red-light);color:var(--red)}
-
-  .spinner{width:12px;height:12px;flex-shrink:0;
-    border:2px solid var(--blue-mid);border-top-color:var(--blue);
-    border-radius:50%;animation:spin .7s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-
-  .section{margin-bottom:12px}
-  .section-title{font-size:11px;font-weight:700;color:var(--blue);
-    text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;
-    padding-bottom:4px;border-bottom:1px solid var(--blue-mid);
-    display:flex;align-items:center;justify-content:space-between}
-  .badge{font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;text-transform:uppercase}
-  .badge-public{background:var(--green-light);color:var(--green)}
-  .badge-costar{background:#dceeff;color:#0a3a7a}
-
-  .kv-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-  .kv{background:var(--gray1);border-radius:var(--radius);padding:5px 7px}
-  .kv-lbl{font-size:9px;color:var(--gray3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:1px}
-  .kv-val{font-size:12px;font-weight:600;color:var(--text);word-break:break-word}
-
-  .data-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
-  .data-table th{background:var(--blue);color:#fff;padding:4px 6px;text-align:left;font-weight:600}
-  .data-table td{padding:4px 6px;border-bottom:1px solid var(--gray2)}
-  .data-table tr:last-child td{border-bottom:none}
-  .data-table tr:nth-child(even) td{background:var(--gray1)}
-
-  .step{border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;margin-bottom:8px}
-  .step-hdr{font-size:11px;font-weight:700;color:var(--blue);margin-bottom:5px;
-            display:flex;align-items:center;gap:6px}
-  .step-num{width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;
-            font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .step p{font-size:11px;color:var(--gray4);margin-bottom:4px}
-  .step ul{padding-left:14px}
-  .step li{font-size:11px;color:var(--gray4);margin-bottom:2px}
-  code{font-size:10px;background:var(--gray2);padding:1px 4px;border-radius:2px}
-  a.ext{color:var(--blue);font-size:11px}
-
-  .mt8{margin-top:8px}.mb8{margin-bottom:8px}.mb4{margin-bottom:4px}
-  .note{font-size:10px;color:var(--gray3);margin-top:4px}
-  .key-row{display:flex;gap:4px}.key-row input{flex:1}
-  .key-saved{color:var(--green);font-size:10px;font-weight:600}
-
-  .progress{margin-bottom:8px}
-  .progress-item{display:flex;align-items:center;gap:6px;padding:3px 0;
-                  font-size:11px;color:var(--gray3)}
-  .progress-item.done{color:var(--green)}
-  .progress-item.active{color:var(--blue);font-weight:600}
-  .progress-item .dot{width:8px;height:8px;border-radius:50%;background:var(--gray2);flex-shrink:0}
-  .progress-item.done .dot{background:var(--green)}
-  .progress-item.active .dot{background:var(--blue)}
-</style>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CRE Appraisal Research</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"/>
+  <style>
+    body { font-size: 13px; background: #f8f9fa; }
+    .tab-content { padding: 10px 0; }
+    .section-header { background: #1a3a5c; color: white; padding: 5px 10px; border-radius: 4px; margin: 10px 0 6px; font-weight: 600; font-size: 12px; }
+    .data-row { display: flex; justify-content: space-between; padding: 3px 6px; border-bottom: 1px solid #eee; }
+    .data-label { color: #555; font-size: 12px; }
+    .data-value { font-weight: 500; font-size: 12px; max-width: 60%; text-align: right; }
+    .source-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+    .badge-public { background: #d4edda; color: #155724; }
+    .badge-costar { background: #cce5ff; color: #004085; }
+    .badge-manual { background: #fff3cd; color: #856404; }
+    .status-log { font-size: 11px; color: #666; max-height: 80px; overflow-y: auto; background: #f1f3f5; padding: 6px; border-radius: 4px; }
+    .checklist-item { border: 1px solid #dee2e6; border-radius: 4px; padding: 8px; margin-bottom: 6px; background: white; }
+    .checklist-step { font-weight: 600; color: #1a3a5c; }
+    textarea.costar-paste { font-size: 11px; font-family: monospace; background: #f8f9fa; }
+    .manual-flag { background: #fff3cd; border-left: 3px solid #ffc107; padding: 3px 6px; font-size: 11px; }
+    #apiKeySection input { font-size: 12px; }
+    .spinner-sm { width: 1rem; height: 1rem; }
+    .county-badge { font-size: 11px; background: #e8f0fe; color: #1a3a5c; padding: 2px 8px; border-radius: 10px; }
+    .error-msg { color: #dc3545; font-size: 11px; padding: 4px; }
+  </style>
 </head>
 <body>
+<div class="container-fluid p-2">
 
-<div class="header">
-  <h1>📋 CRE Appraisal Research</h1>
-  <p>Indiana · USPAP · Silnes &amp; Associates</p>
-</div>
-
-<div class="tabs">
-  <button class="tab active" onclick="switchTab('research')">1 · Public</button>
-  <button class="tab" onclick="switchTab('costar')">2 · CoStar</button>
-  <button class="tab" onclick="switchTab('paste')">3 · Paste</button>
-  <button class="tab" onclick="switchTab('settings')">⚙</button>
-</div>
-
-<!-- ══════════════ TAB 1: PUBLIC DATA ══════════════ -->
-<div id="tab-research" class="panel active">
-
-  <div class="section mb8">
-    <label>Property address</label>
-    <input type="text" id="addr"
-      placeholder="8241 US Highway 31 S, Indianapolis, IN 46227"/>
-    <div class="note">Enter full street address including city and ZIP</div>
-  </div>
-
-  <div id="progress" class="progress" style="display:none">
-    <div class="progress-item" id="prog-search"><div class="dot"></div>Searching public records...</div>
-    <div class="progress-item" id="prog-parse"><div class="dot"></div>Structuring data...</div>
-    <div class="progress-item" id="prog-excel"><div class="dot"></div>Writing to Excel sheets...</div>
-  </div>
-
-  <button class="btn btn-primary mb8" id="research-btn" onclick="runResearch()">
-    🔍 Pull Public Data → Excel
-  </button>
-
-  <div id="research-status"></div>
-  <div id="research-results"></div>
-</div>
-
-<!-- ══════════════ TAB 2: COSTAR CHECKLIST ══════════════ -->
-<div id="tab-costar" class="panel">
-  <div class="alert alert-info mb8">
-    <span>ℹ️</span>
-    <span>Log into CoStar Suite and follow each step below. Copy or export the results, then paste them in Tab 3.</span>
-  </div>
-
-  <div class="step">
-    <div class="step-hdr"><div class="step-num">1</div>Comparable improved sales</div>
-    <p>Go to <strong>Comps → For Sale / Sold</strong></p>
-    <ul>
-      <li>Property type: <code>Retail / Freestanding</code></li>
-      <li>Geography: <code>2–5 mile radius from subject</code></li>
-      <li>Sale date: <code>Last 3 years</code></li>
-      <li>Size: <code>1,000 – 10,000 SF</code></li>
-    </ul>
-    <p class="mt8">Export: Address, Sale Date, Price, Bldg SF, $/SF, Land SF, Yr Built, Occupancy %, Cap Rate, Buyer, Seller</p>
-    <a class="ext" href="https://www.costar.com/comps" target="_blank">→ Open CoStar Comps ↗</a>
-  </div>
-
-  <div class="step">
-    <div class="step-hdr"><div class="step-num">2</div>Comparable lease comps</div>
-    <p>Switch to the <strong>Lease Comps</strong> tab</p>
-    <ul>
-      <li>Property type: <code>Retail</code></li>
-      <li>Geography: <code>3–5 mile radius</code></li>
-      <li>Lease date: <code>Last 2–3 years</code></li>
-    </ul>
-    <p class="mt8">Export: Address, Tenant, Lease Date, Expiration, Type (NNN/Gross), Rent $/SF, Space SF</p>
-    <a class="ext" href="https://www.costar.com/comps" target="_blank">→ Open CoStar Comps ↗</a>
-  </div>
-
-  <div class="step">
-    <div class="step-hdr"><div class="step-num">3</div>Market analytics snapshot</div>
-    <p>Go to <strong>Market Analytics → Indianapolis → Retail</strong></p>
-    <ul>
-      <li>Current quarter: inventory SF, vacancy %, avg asking rent, net absorption</li>
-      <li>Repeat for <code>Southport / Edgewood</code> submarket</li>
-      <li>Note cap rate trend range</li>
-    </ul>
-    <a class="ext" href="https://www.costar.com/analytics" target="_blank">→ Open Market Analytics ↗</a>
-  </div>
-
-  <div class="step">
-    <div class="step-hdr"><div class="step-num">4</div>Active for-sale listings</div>
-    <p>Search <strong>For Sale → Retail</strong> within 2 miles of subject</p>
-    <ul>
-      <li>Note: address, price, $/SF, OAR, tenant, WALT</li>
-      <li>These support your cap rate market extraction</li>
-    </ul>
-  </div>
-
-  <div class="step">
-    <div class="step-hdr"><div class="step-num">5</div>Subject property detail</div>
-    <p>Search the subject address directly and copy from the property page:</p>
-    <ul>
-      <li>Building SF, Year Built, Construction, Parking</li>
-      <li>Tenant, lease expiration, lease type, rent/SF, options</li>
-      <li>For Sale status, asking price, asking OAR, listing broker</li>
-      <li>True Owner</li>
-    </ul>
-  </div>
-
-  <button class="btn btn-primary mt8" onclick="switchTab('paste')">
-    Continue → Paste CoStar Data
-  </button>
-</div>
-
-<!-- ══════════════ TAB 3: PASTE COSTAR ══════════════ -->
-<div id="tab-paste" class="panel">
-  <div class="alert alert-info mb8">
-    <span>ℹ️</span>
-    <span>Paste any CoStar export — CSV, copied table, or free-form notes. Click Parse &amp; Write to Excel when done.</span>
-  </div>
-
-  <div class="section">
-    <label>Comparable sales</label>
-    <textarea id="paste-sales"
-      placeholder="Paste CoStar comparable sales here.&#10;&#10;Example:&#10;1301 E Stop 11 Rd, Indianapolis | 3/28/2025 | $950,000 | 3,024 SF | $314/SF&#10;7910 US Hwy 31 S | 3/13/2025 | $1,400,000 | 4,599 SF | $304/SF"></textarea>
-  </div>
-
-  <div class="section">
-    <label>Comparable leases</label>
-    <textarea id="paste-leases"
-      placeholder="Paste CoStar lease comps here.&#10;&#10;Example:&#10;8249 US Hwy 31 S | Abuelito Mexican | $17.70/SF NNN | 4,260 SF | 7/2020"></textarea>
-  </div>
-
-  <div class="section">
-    <label>Market analytics</label>
-    <textarea id="paste-market"
-      placeholder="Paste Indianapolis retail market stats here.&#10;&#10;Example:&#10;Indianapolis Retail Q4 2025&#10;Inventory: 47.74M SF | Vacancy: 4.8% | Avg Rent: $16.67/SF&#10;&#10;Southport/Edgewood: Vacancy 5.1% | Avg Rent $19.87/SF"></textarea>
-  </div>
-
-  <div class="section">
-    <label>Active for-sale listings</label>
-    <textarea id="paste-listings"
-      placeholder="Paste active listing details here.&#10;&#10;Example:&#10;2326 Southport Rd | $2,078,000 | McDonald's NNN | 3,780 SF | 3.85% OAR | 19yr WALT"></textarea>
-  </div>
-
-  <div class="section">
-    <label>Subject property detail (from CoStar property page)</label>
-    <textarea id="paste-subject"
-      placeholder="Paste subject property CoStar details here.&#10;&#10;Example:&#10;True Owner: Cheri Roth Real Estate LLC&#10;Listing: $1,443,312 | Marcus &amp; Millichap | Oct 2025&#10;Tenant: T-Mobile | Exp: Aug 2026 | NNN | $35.00/SF&#10;Option: 1 x 2yr at 5% bump"></textarea>
-  </div>
-
-  <button class="btn btn-primary" id="parse-btn" onclick="parseCoStar()">
-    ⚙️ Parse &amp; Write to Excel
-  </button>
-  <div id="parse-status" class="mt8"></div>
-</div>
-
-<!-- ══════════════ TAB 4: SETTINGS ══════════════ -->
-<div id="tab-settings" class="panel">
-  <div class="section">
-    <label>Anthropic API Key</label>
-    <div class="key-row">
-      <input type="password" id="api-key-input" placeholder="sk-ant-..."/>
-      <button class="btn btn-sm" onclick="saveKey()">Save</button>
+  <!-- Header -->
+  <div class="d-flex align-items-center mb-2">
+    <div>
+      <strong style="color:#1a3a5c;font-size:14px;">CRE Appraisal Research</strong><br>
+      <span id="countyBadge" class="county-badge" style="display:none"></span>
     </div>
-    <div id="key-status" class="note"></div>
-    <div class="note mt8">
-      Stored only in your browser's local storage on this computer.
-      Never sent anywhere except directly to Anthropic's API.
-      Get a key at <a class="ext" href="https://console.anthropic.com" target="_blank">console.anthropic.com ↗</a>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="showTab('settings')">⚙ Settings</button>
+  </div>
+
+  <!-- Address input -->
+  <div class="input-group mb-2">
+    <input type="text" id="addressInput" class="form-control form-control-sm"
+      placeholder="Enter Indiana property address…"
+      value="8111 S Emerson Ave, Indianapolis, IN 46237"/>
+    <button class="btn btn-sm btn-primary" id="btnSearch" onclick="startResearch()">Research</button>
+  </div>
+  <div id="statusLog" class="status-log mb-2" style="display:none"></div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs nav-fill mb-0" style="font-size:11px;">
+    <li class="nav-item"><a class="nav-link active" id="tab1-link" href="#" onclick="showTab('step1')">1 Public Data</a></li>
+    <li class="nav-item"><a class="nav-link" id="tab2-link" href="#" onclick="showTab('step2')">2 CoStar Guide</a></li>
+    <li class="nav-item"><a class="nav-link" id="tab3-link" href="#" onclick="showTab('step3')">3 Paste CoStar</a></li>
+    <li class="nav-item"><a class="nav-link" id="tab4-link" href="#" onclick="showTab('step4')">4 Report Data</a></li>
+  </ul>
+
+  <!-- ===== STEP 1: Public Data ===== -->
+  <div id="tab-step1" class="tab-content">
+    <button class="btn btn-success btn-sm w-100 mb-2" onclick="writeToExcel()">📊 Write All to Excel</button>
+    <div id="publicDataOutput">
+      <p class="text-muted text-center mt-3" style="font-size:12px;">Enter an address and click Research to populate data.</p>
     </div>
   </div>
 
-  <div class="section mt8" style="border-top:1px solid var(--border);padding-top:10px">
-    <label>About</label>
-    <div class="note" style="line-height:1.6">
-      <strong>CRE Appraisal Research Add-in v1.0</strong><br/>
-      Silnes &amp; Associates, LLC<br/><br/>
-      <strong>Public sources:</strong> Marion County Assessor · Indiana DLGF · US Census ACS · Bureau of Labor Statistics · FEMA · US Treasury · Federal Reserve<br/><br/>
-      <strong>CoStar:</strong> Requires active CoStar Suite subscription. Paste exports in Tab 3.<br/><br/>
-      Each property lookup costs approximately $0.01–$0.03 in Anthropic API usage.
+  <!-- ===== STEP 2: CoStar Guide ===== -->
+  <div id="tab-step2" class="tab-content" style="display:none">
+    <div id="costarGuide">
+      <p class="text-muted text-center mt-3" style="font-size:12px;">Run Research first to generate a customized CoStar checklist.</p>
     </div>
   </div>
+
+  <!-- ===== STEP 3: Paste CoStar Data ===== -->
+  <div id="tab-step3" class="tab-content" style="display:none">
+    <p style="font-size:11px;color:#555;" class="mb-2">Export or copy data from CoStar Suite and paste into each box. Any format works — CSV, tab-separated, or free text.</p>
+
+    <div class="section-header">Comparable Sales</div>
+    <textarea id="costarSales" class="form-control costar-paste mb-2" rows="4" placeholder="Paste CoStar comparable sales export here…"></textarea>
+
+    <div class="section-header">Comparable Leases</div>
+    <textarea id="costarLeases" class="form-control costar-paste mb-2" rows="4" placeholder="Paste CoStar comparable lease comps here…"></textarea>
+
+    <div class="section-header">Market Analytics</div>
+    <textarea id="costarMarket" class="form-control costar-paste mb-2" rows="4" placeholder="Paste CoStar market statistics here…"></textarea>
+
+    <div class="section-header">Active Listings</div>
+    <textarea id="costarListings" class="form-control costar-paste mb-2" rows="3" placeholder="Paste active listing data here…"></textarea>
+
+    <div class="section-header">Subject Property (CoStar Detail)</div>
+    <textarea id="costarSubject" class="form-control costar-paste mb-2" rows="4" placeholder="Paste CoStar subject property record here…"></textarea>
+
+    <button class="btn btn-primary btn-sm w-100" onclick="parseCoStarData()">Parse & Add to Excel</button>
+  </div>
+
+  <!-- ===== STEP 4: Report Data ===== -->
+  <div id="tab-step4" class="tab-content" style="display:none">
+    <div id="reportDataOutput">
+      <p class="text-muted text-center mt-3" style="font-size:12px;">Complete Steps 1 and 3, then this view will show a combined report-ready summary.</p>
+    </div>
+  </div>
+
+  <!-- ===== SETTINGS ===== -->
+  <div id="tab-settings" class="tab-content" style="display:none">
+    <div id="apiKeySection">
+      <div class="section-header">Anthropic API Key</div>
+      <p style="font-size:11px;color:#555;">Required for AI-assisted sections (assessor lookup, listing data). Get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> — pay-as-you-go, ~$0.03/property.</p>
+      <input type="password" id="apiKeyInput" class="form-control form-control-sm mb-2" placeholder="sk-ant-…"/>
+      <button class="btn btn-sm btn-success w-100" onclick="saveApiKey()">Save API Key</button>
+      <div id="apiKeySavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ API key saved for this session</div>
+    </div>
+    <div class="section-header mt-3">About</div>
+    <p style="font-size:11px;color:#555;">
+      <strong>Data Sources (automatic):</strong><br>
+      • Census Geocoder (address validation, lat/lon, county FIPS)<br>
+      • Census ACS 5-Year (demographics by township/county)<br>
+      • BLS LAUS (county + MSA + state + national unemployment)<br>
+      • US Treasury H.15 (daily yield curve)<br>
+      • FEMA NFHL REST API (flood zone via lat/lon)<br>
+      • Indiana Gateway (assessed values, all 92 counties)<br><br>
+      <strong>AI-Assisted (requires API key):</strong><br>
+      • Property record card, sales history, zoning, listing data<br><br>
+      <strong>Manual (CoStar paste-in):</strong><br>
+      • Comp sales, comp leases, market analytics, active listings
+    </p>
+  </div>
+
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 <script>
-/* ─── Office init ─── */
-Office.onReady(function(info) {
-  if (info.host === Office.HostType.Excel) {
-    loadSavedKey();
-  }
+
+// ============================================================
+// INDIANA COUNTY LOOKUP — all 92 counties
+// Key: normalized county name (lowercase, no "county")
+// ============================================================
+const INDIANA_COUNTIES = {
+  'adams':{'fips':'001','name':'Adams County'},
+  'allen':{'fips':'003','name':'Allen County'},
+  'bartholomew':{'fips':'005','name':'Bartholomew County'},
+  'benton':{'fips':'007','name':'Benton County'},
+  'blackford':{'fips':'009','name':'Blackford County'},
+  'boone':{'fips':'011','name':'Boone County'},
+  'brown':{'fips':'013','name':'Brown County'},
+  'carroll':{'fips':'015','name':'Carroll County'},
+  'cass':{'fips':'017','name':'Cass County'},
+  'clark':{'fips':'019','name':'Clark County'},
+  'clay':{'fips':'021','name':'Clay County'},
+  'clinton':{'fips':'023','name':'Clinton County'},
+  'crawford':{'fips':'025','name':'Crawford County'},
+  'daviess':{'fips':'027','name':'Daviess County'},
+  'dearborn':{'fips':'029','name':'Dearborn County'},
+  'decatur':{'fips':'031','name':'Decatur County'},
+  'dekalb':{'fips':'033','name':'DeKalb County'},
+  'delaware':{'fips':'035','name':'Delaware County'},
+  'dubois':{'fips':'037','name':'Dubois County'},
+  'elkhart':{'fips':'039','name':'Elkhart County'},
+  'fayette':{'fips':'041','name':'Fayette County'},
+  'floyd':{'fips':'043','name':'Floyd County'},
+  'fountain':{'fips':'045','name':'Fountain County'},
+  'franklin':{'fips':'047','name':'Franklin County'},
+  'fulton':{'fips':'049','name':'Fulton County'},
+  'gibson':{'fips':'051','name':'Gibson County'},
+  'grant':{'fips':'053','name':'Grant County'},
+  'greene':{'fips':'055','name':'Greene County'},
+  'hamilton':{'fips':'057','name':'Hamilton County'},
+  'hancock':{'fips':'059','name':'Hancock County'},
+  'harrison':{'fips':'061','name':'Harrison County'},
+  'hendricks':{'fips':'063','name':'Hendricks County'},
+  'henry':{'fips':'065','name':'Henry County'},
+  'howard':{'fips':'067','name':'Howard County'},
+  'huntington':{'fips':'069','name':'Huntington County'},
+  'jackson':{'fips':'071','name':'Jackson County'},
+  'jasper':{'fips':'073','name':'Jasper County'},
+  'jay':{'fips':'075','name':'Jay County'},
+  'jefferson':{'fips':'077','name':'Jefferson County'},
+  'jennings':{'fips':'079','name':'Jennings County'},
+  'johnson':{'fips':'081','name':'Johnson County'},
+  'knox':{'fips':'083','name':'Knox County'},
+  'kosciusko':{'fips':'085','name':'Kosciusko County'},
+  'lagrange':{'fips':'087','name':'LaGrange County'},
+  'lake':{'fips':'089','name':'Lake County'},
+  'laporte':{'fips':'091','name':'LaPorte County'},
+  'la porte':{'fips':'091','name':'LaPorte County'},
+  'lawrence':{'fips':'093','name':'Lawrence County'},
+  'madison':{'fips':'095','name':'Madison County'},
+  'marion':{'fips':'097','name':'Marion County'},
+  'marshall':{'fips':'099','name':'Marshall County'},
+  'martin':{'fips':'101','name':'Martin County'},
+  'miami':{'fips':'103','name':'Miami County'},
+  'monroe':{'fips':'105','name':'Monroe County'},
+  'montgomery':{'fips':'107','name':'Montgomery County'},
+  'morgan':{'fips':'109','name':'Morgan County'},
+  'newton':{'fips':'111','name':'Newton County'},
+  'noble':{'fips':'113','name':'Noble County'},
+  'ohio':{'fips':'115','name':'Ohio County'},
+  'orange':{'fips':'117','name':'Orange County'},
+  'owen':{'fips':'119','name':'Owen County'},
+  'parke':{'fips':'121','name':'Parke County'},
+  'perry':{'fips':'123','name':'Perry County'},
+  'pike':{'fips':'125','name':'Pike County'},
+  'porter':{'fips':'127','name':'Porter County'},
+  'posey':{'fips':'129','name':'Posey County'},
+  'pulaski':{'fips':'131','name':'Pulaski County'},
+  'putnam':{'fips':'133','name':'Putnam County'},
+  'randolph':{'fips':'135','name':'Randolph County'},
+  'ripley':{'fips':'137','name':'Ripley County'},
+  'rush':{'fips':'139','name':'Rush County'},
+  'st. joseph':{'fips':'141','name':'St. Joseph County'},
+  'saint joseph':{'fips':'141','name':'St. Joseph County'},
+  'scott':{'fips':'143','name':'Scott County'},
+  'shelby':{'fips':'145','name':'Shelby County'},
+  'spencer':{'fips':'147','name':'Spencer County'},
+  'starke':{'fips':'149','name':'Starke County'},
+  'steuben':{'fips':'151','name':'Steuben County'},
+  'sullivan':{'fips':'153','name':'Sullivan County'},
+  'switzerland':{'fips':'155','name':'Switzerland County'},
+  'tippecanoe':{'fips':'157','name':'Tippecanoe County'},
+  'tipton':{'fips':'159','name':'Tipton County'},
+  'union':{'fips':'161','name':'Union County'},
+  'vanderburgh':{'fips':'163','name':'Vanderburgh County'},
+  'vermillion':{'fips':'165','name':'Vermillion County'},
+  'vigo':{'fips':'167','name':'Vigo County'},
+  'wabash':{'fips':'169','name':'Wabash County'},
+  'warren':{'fips':'171','name':'Warren County'},
+  'warrick':{'fips':'173','name':'Warrick County'},
+  'washington':{'fips':'175','name':'Washington County'},
+  'wayne':{'fips':'177','name':'Wayne County'},
+  'wells':{'fips':'179','name':'Wells County'},
+  'white':{'fips':'181','name':'White County'},
+  'whitley':{'fips':'183','name':'Whitley County'}
+};
+
+// MSA lookup by 3-digit county FIPS
+// blsCode = 4-digit BLS area code → series LAUMT18{code}000000003
+const INDIANA_MSA = {
+  '003':{name:'Fort Wayne, IN',           blsCode:'2230'},
+  '005':{name:'Columbus, IN',             blsCode:'1810'},
+  '011':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '013':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '035':{name:'Muncie, IN',               blsCode:'3480'},
+  '039':{name:'Elkhart-Goshen, IN',       blsCode:'2180'},
+  '051':{name:'Evansville, IN-KY',        blsCode:'2160'},
+  '057':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '059':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '063':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '067':{name:'Kokomo, IN',               blsCode:'2990'},
+  '081':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '087':{name:'Elkhart-Goshen, IN',       blsCode:'2180'},
+  '091':{name:'Michigan City-La Porte, IN', blsCode:'3350'},
+  '095':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '097':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '105':{name:'Bloomington, IN',          blsCode:'0140'},
+  '109':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '129':{name:'Evansville, IN-KY',        blsCode:'2160'},
+  '133':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '141':{name:'South Bend-Mishawaka, IN-MI', blsCode:'4520'},
+  '145':{name:'Indianapolis-Carmel-Anderson, IN', blsCode:'2698'},
+  '157':{name:'Lafayette-West Lafayette, IN', blsCode:'3120'},
+  '163':{name:'Evansville, IN-KY',        blsCode:'2160'},
+  '167':{name:'Terre Haute, IN',          blsCode:'4360'},
+  '173':{name:'Evansville, IN-KY',        blsCode:'2160'},
+  '179':{name:'Fort Wayne, IN',           blsCode:'2230'},
+  '183':{name:'Fort Wayne, IN',           blsCode:'2230'}
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let geoResult = null;        // geocoder result
+let publicData = {};         // all pulled data
+let costarData = {};         // parsed CoStar data
+let apiKey = '';
+
+Office.onReady(() => {
+  const saved = localStorage.getItem('cre_api_key');
+  if (saved) { apiKey = saved; document.getElementById('apiKeyInput').value = saved; }
 });
 
-/* ─── Tab switching ─── */
-function switchTab(name) {
-  ['research','costar','paste','settings'].forEach((t,i) => {
-    document.getElementById('tab-'+t).classList.toggle('active', t===name);
-    document.querySelectorAll('.tab')[i].classList.toggle('active', t===name);
+function saveApiKey() {
+  apiKey = document.getElementById('apiKeyInput').value.trim();
+  localStorage.setItem('cre_api_key', apiKey);
+  document.getElementById('apiKeySavedMsg').style.display = 'block';
+}
+
+function showTab(name) {
+  ['step1','step2','step3','step4','settings'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = (t===name) ? '' : 'none';
+    const link = document.getElementById('tab'+{step1:'1',step2:'2',step3:'3',step4:'4',settings:'-s'}[t]+'-link');
+    if (link) link.classList.toggle('active', t===name);
   });
 }
 
-/* ─── API key ─── */
-function saveKey() {
-  const k = document.getElementById('api-key-input').value.trim();
-  if (!k.startsWith('sk-ant-')) {
-    document.getElementById('key-status').innerHTML =
-      '<span style="color:var(--red)">Key should start with sk-ant-</span>';
-    return;
+function log(msg) {
+  const el = document.getElementById('statusLog');
+  el.style.display = 'block';
+  el.innerHTML += msg + '<br>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() {
+  const el = document.getElementById('statusLog');
+  el.innerHTML = '';
+  el.style.display = 'none';
+}
+
+// ============================================================
+// MAIN RESEARCH FLOW
+// ============================================================
+async function startResearch() {
+  clearLog();
+  publicData = {};
+  const address = document.getElementById('addressInput').value.trim();
+  if (!address) { alert('Please enter an address.'); return; }
+
+  document.getElementById('btnSearch').disabled = true;
+  document.getElementById('btnSearch').innerHTML = '<span class="spinner-border spinner-sm"></span>';
+  document.getElementById('publicDataOutput').innerHTML = '<p class="text-muted text-center mt-3" style="font-size:12px;"><span class="spinner-border spinner-sm"></span> Gathering data…</p>';
+  document.getElementById('countyBadge').style.display = 'none';
+
+  try {
+    // Step A: Geocode
+    log('📍 Geocoding address…');
+    geoResult = await geocodeAddress(address);
+    if (!geoResult) throw new Error('Address not found or not in Indiana. Please verify the address.');
+
+    const {lat, lon, countyFips, cousub, stateFips, matchedAddress, countyName} = geoResult;
+    publicData.address = matchedAddress;
+    publicData.lat = lat;
+    publicData.lon = lon;
+    publicData.countyFips = countyFips;
+    publicData.countyName = countyName;
+
+    const msaInfo = INDIANA_MSA[countyFips] || null;
+    publicData.msaName = msaInfo ? msaInfo.name : 'Non-Metropolitan Indiana';
+    document.getElementById('countyBadge').textContent = countyName + (msaInfo ? ' · '+msaInfo.name : '');
+    document.getElementById('countyBadge').style.display = '';
+
+    log('✅ Geocoded: ' + matchedAddress);
+    log('   County: ' + countyName + ' · MSA: ' + publicData.msaName);
+
+    // Steps B-F run in parallel
+    log('⚡ Fetching Census, BLS, Treasury, FEMA in parallel…');
+    const [censusData, blsData, treasuryData, femaData, assessorData] = await Promise.allSettled([
+      fetchCensusACS(countyFips, cousub),
+      fetchBLS(countyFips, msaInfo),
+      fetchTreasury(),
+      fetchFEMA(lat, lon),
+      fetchAssessorData(address, matchedAddress, countyFips, countyName)
+    ]);
+
+    if (censusData.status === 'fulfilled') { Object.assign(publicData, censusData.value); log('✅ Census ACS data loaded'); }
+    else log('⚠️ Census: ' + censusData.reason);
+
+    if (blsData.status === 'fulfilled') { Object.assign(publicData, blsData.value); log('✅ BLS unemployment loaded'); }
+    else log('⚠️ BLS: ' + blsData.reason);
+
+    if (treasuryData.status === 'fulfilled') { Object.assign(publicData, treasuryData.value); log('✅ Treasury rates loaded'); }
+    else log('⚠️ Treasury: ' + treasuryData.reason);
+
+    if (femaData.status === 'fulfilled') { Object.assign(publicData, femaData.value); log('✅ FEMA flood zone loaded'); }
+    else log('⚠️ FEMA: ' + femaData.reason);
+
+    if (assessorData.status === 'fulfilled') { Object.assign(publicData, assessorData.value); log('✅ Assessor/property data loaded'); }
+    else log('⚠️ Assessor: ' + assessorData.reason);
+
+    renderPublicData();
+    renderCoStarGuide();
+    renderReportData();
+    log('✅ Done. Click "Write All to Excel" to populate sheets.');
+
+  } catch(err) {
+    log('❌ Error: ' + err.message);
+    document.getElementById('publicDataOutput').innerHTML = `<div class="error-msg p-2">❌ ${err.message}</div>`;
+  } finally {
+    document.getElementById('btnSearch').disabled = false;
+    document.getElementById('btnSearch').innerHTML = 'Research';
   }
-  localStorage.setItem('cre_api_key', k);
-  document.getElementById('key-status').innerHTML =
-    '<span class="key-saved">✓ Saved</span>';
-}
-function loadSavedKey() {
-  const k = localStorage.getItem('cre_api_key');
-  if (k) {
-    document.getElementById('api-key-input').value = k;
-    document.getElementById('key-status').innerHTML =
-      '<span class="key-saved">✓ Key loaded</span>';
-  }
-}
-function getKey() { return localStorage.getItem('cre_api_key') || ''; }
-
-/* ─── Status helper ─── */
-function setStatus(elId, msg, type='info') {
-  const el = document.getElementById(elId);
-  if (!msg) { el.innerHTML=''; return; }
-  const icons = {info:'ℹ️',success:'✅',warn:'⚠️',error:'❌'};
-  const isRunning = type==='running';
-  el.innerHTML = `<div class="alert alert-${isRunning?'info':type}">
-    ${isRunning ? '<div class="spinner"></div>' : (icons[type]||'')}
-    <span>${msg}</span>
-  </div>`;
 }
 
-/* ─── Progress bar ─── */
-function setProgress(step) {
-  const steps = ['search','parse','excel'];
-  const prog = document.getElementById('progress');
-  prog.style.display = step ? 'block' : 'none';
-  steps.forEach(s => {
-    const el = document.getElementById('prog-'+s);
-    const idx = steps.indexOf(s);
-    const activeIdx = steps.indexOf(step);
-    el.className = 'progress-item' +
-      (idx < activeIdx ? ' done' : idx === activeIdx ? ' active' : '');
-  });
-}
+// ============================================================
+// A. GEOCODER — Census Geocoder Geographies API
+// Returns county FIPS, county subdivision FIPS, lat/lon
+// ============================================================
+async function geocodeAddress(address) {
+  const url = `https://geocoding.census.gov/geocoder/geographies/onelineaddress?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&vintage=Current_Residents&layers=Counties,County+Subdivisions&format=json`;
+  const r = await fetch(url);
+  const d = await r.json();
+  const matches = d.result && d.result.addressMatches;
+  if (!matches || matches.length === 0) return null;
 
-/* ─── Claude API ─── */
-async function callClaude(system, user, useSearch=false) {
-  const key = getKey();
-  if (!key) throw new Error(
-    'No API key saved — go to ⚙ Settings and save your Anthropic API key first.');
+  const m = matches[0];
+  const coords = m.coordinates;
+  const geos = m.geographies || {};
 
-  const body = {
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
-    system,
-    messages: [{ role: 'user', content: user }]
+  // Validate Indiana
+  const counties = geos['Counties'] || [];
+  if (counties.length === 0) return null;
+  const county = counties[0];
+  if (county.STATE !== '18') throw new Error('Address is not in Indiana. This tool is for Indiana properties only.');
+
+  const cousubs = geos['County Subdivisions'] || [];
+  const cousub = cousubs.length > 0 ? cousubs[0].COUSUB : null;
+
+  // Normalize county name for lookup
+  let rawCountyName = county.NAME || '';
+  const normalKey = rawCountyName.toLowerCase().replace(' county','').trim();
+  const countyInfo = INDIANA_COUNTIES[normalKey];
+  const countyFips = countyInfo ? countyInfo.fips : county.COUNTY;
+  const countyName = countyInfo ? countyInfo.name : rawCountyName;
+
+  return {
+    lat: coords.y,
+    lon: coords.x,
+    stateFips: '18',
+    countyFips: county.COUNTY || countyFips,
+    cousub: cousub,
+    matchedAddress: m.matchedAddress,
+    countyName: countyName
   };
-  if (useSearch) body.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+}
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+// ============================================================
+// B. CENSUS ACS 5-YEAR
+// Pulls township (cousub), county, state, national levels
+// ============================================================
+async function fetchCensusACS(countyFips, cousub) {
+  const BASE = 'https://api.census.gov/data/2023/acs/acs5';
+  const VARS = 'NAME,B01003_001E,B19013_001E,B25064_001E,B23025_003E,B23025_005E,B08303_001E';
+
+  const [countyRes, stateRes, natRes] = await Promise.all([
+    fetch(`${BASE}?get=${VARS}&for=county:${countyFips}&in=state:18`).then(r=>r.json()),
+    fetch(`${BASE}?get=${VARS}&for=state:18`).then(r=>r.json()),
+    fetch(`${BASE}?get=${VARS}&for=us:1`).then(r=>r.json())
+  ]);
+
+  // Optional: township level (may not always work)
+  let subRes = null;
+  if (cousub) {
+    try {
+      const sr = await fetch(`${BASE}?get=${VARS}&for=county+subdivision:${cousub}&in=state:18+county:${countyFips}`);
+      subRes = await sr.json();
+    } catch(e) { /* skip */ }
+  }
+
+  function parseRow(rows, idx=1) {
+    if (!rows || rows.length < 2) return null;
+    const r = rows[idx] || rows[1];
+    return {
+      name: r[0], pop: parseInt(r[1])||null, medHHIncome: parseInt(r[2])||null,
+      medGrossRent: parseInt(r[3])||null, laborForce: parseInt(r[4])||null,
+      unemployed: parseInt(r[5])||null, workersCommuting: parseInt(r[6])||null
+    };
+  }
+
+  const countyD = parseRow(countyRes);
+  const stateD  = parseRow(stateRes);
+  const natD    = parseRow(natRes);
+  const subD    = subRes ? parseRow(subRes) : null;
+
+  return {
+    census: {
+      township: subD,
+      county: countyD,
+      state: stateD,
+      national: natD
+    }
+  };
+}
+
+// ============================================================
+// C. BLS LAUS — county + MSA + state + national
+// Series format: LAUCN18{fips}0000000003 (county)
+//                LAUMT18{code}000000003  (MSA)
+//                LASST180000000000003    (Indiana)
+//                LNS14000000             (US SA)
+// ============================================================
+async function fetchBLS(countyFips, msaInfo) {
+  const countySeries = `LAUCN18${countyFips}0000000003`;
+  const stateSeries  = 'LASST180000000000003';
+  const natSeries    = 'LNS14000000';
+
+  const seriesIDs = [countySeries, stateSeries, natSeries];
+  if (msaInfo && msaInfo.blsCode) {
+    seriesIDs.push(`LAUMT18${msaInfo.blsCode}000000003`);
+  }
+
+  const payload = JSON.stringify({ seriesid: seriesIDs, startyear:'2023', endyear:'2025' });
+  const r = await fetch('https://api.bls.gov/publicAPI/v2/timeseries/data/', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: payload
+  });
+  const d = await r.json();
+
+  function latestVal(series) {
+    if (!series || !series.data || series.data.length === 0) return null;
+    const row = series.data[0];
+    return { value: parseFloat(row.value), period: row.period+' '+row.year };
+  }
+
+  const out = {};
+  if (d.Results && d.Results.series) {
+    for (const s of d.Results.series) {
+      const sid = s.seriesID;
+      const val = latestVal(s);
+      if (sid === countySeries) out.blsCounty = val;
+      else if (sid === stateSeries) out.blsState = val;
+      else if (sid === natSeries) out.blsNational = val;
+      else if (msaInfo && sid === `LAUMT18${msaInfo.blsCode}000000003`) out.blsMSA = val;
+    }
+  }
+  return { bls: out };
+}
+
+// ============================================================
+// D. US TREASURY — daily yield curve CSV
+// ============================================================
+async function fetchTreasury() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth()+1).padStart(2,'0');
+
+  // Try current month, fall back to prior month
+  async function tryFetch(y, m) {
+    const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${y}/all?type=daily_treasury_yield_curve&field_tdr_date_value=${y}${m}&page&_format=csv`;
+    const r = await fetch(url);
+    const text = await r.text();
+    const lines = text.trim().split('\n').filter(l=>l.trim());
+    if (lines.length < 2) return null;
+    const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
+    const lastRow  = lines[lines.length-1].split(',').map(v=>v.replace(/"/g,'').trim());
+    const out = {};
+    headers.forEach((h,i) => { out[h] = lastRow[i]; });
+    return out;
+  }
+
+  let data = await tryFetch(year, month);
+  if (!data) {
+    // Try prior month
+    const d2 = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    data = await tryFetch(d2.getFullYear(), String(d2.getMonth()+1).padStart(2,'0'));
+  }
+
+  if (!data) return { treasury: null };
+
+  return {
+    treasury: {
+      date: data['Date'] || data[Object.keys(data)[0]],
+      y1:   data['1 Yr'] || data['1-Year'] || data['1 YR'] || null,
+      y2:   data['2 Yr'] || data['2-Year'] || data['2 YR'] || null,
+      y5:   data['5 Yr'] || data['5-Year'] || data['5 YR'] || null,
+      y7:   data['7 Yr'] || data['7-Year'] || data['7 YR'] || null,
+      y10:  data['10 Yr'] || data['10-Year'] || data['10 YR'] || null,
+      y20:  data['20 Yr'] || data['20-Year'] || data['20 YR'] || null,
+      y30:  data['30 Yr'] || data['30-Year'] || data['30 YR'] || null,
+    }
+  };
+}
+
+// ============================================================
+// E. FEMA NFHL — flood zone via lat/lon
+// ============================================================
+async function fetchFEMA(lat, lon) {
+  const url = `https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint&spatialRel=esriSpatialRelIntersects&outFields=FLD_ZONE,ZONE_SUBTY,SFHA_TF,STUDY_TYP&returnGeometry=false&f=json`;
+  const r = await fetch(url);
+  const d = await r.json();
+
+  if (!d.features || d.features.length === 0) {
+    return { fema: { zone: 'X', sfha: false, note: 'No NFHL data — minimal flood hazard assumed' } };
+  }
+
+  const attr = d.features[0].attributes;
+  return {
+    fema: {
+      zone: attr.FLD_ZONE || 'X',
+      subType: attr.ZONE_SUBTY || '',
+      sfha: attr.SFHA_TF === 'T',
+      studyType: attr.STUDY_TYP || ''
+    }
+  };
+}
+
+// ============================================================
+// F. ASSESSOR / PROPERTY DATA (AI-assisted via Claude API)
+// Routes to Indiana Gateway for all counties (universal)
+// ============================================================
+async function fetchAssessorData(rawAddress, matchedAddress, countyFips, countyName) {
+  if (!apiKey) return { assessor: { note: 'API key required for assessor data lookup' } };
+
+  const prompt = `You are a commercial real estate research assistant helping an Indiana USPAP-certified appraiser.
+
+Property to research: "${matchedAddress}"
+County: ${countyName} (FIPS 18${countyFips})
+
+Search for this property using these public sources:
+1. Indiana Gateway assessed value portal: https://gateway.ifionline.org/assessedValue/ — search by address
+2. For Marion County properties only, also check: https://assessor.indy.gov
+3. LoopNet public listing page (search LoopNet for the address)
+4. Indiana property transfer records
+
+Return ONLY a JSON object (no markdown, no explanation) with these exact fields:
+{
+  "parcelNumber": "",
+  "propertyClass": "",
+  "landArea": "",
+  "landAreaUnits": "acres or sq ft",
+  "buildingSF": "",
+  "yearBuilt": "",
+  "constructionType": "",
+  "condition": "",
+  "assessedLandValue": "",
+  "assessedImprovementValue": "",
+  "assessedTotalValue": "",
+  "assessedValueYear": "",
+  "annualTaxes": "",
+  "taxYear": "",
+  "currentOwner": "",
+  "lastSaleDate": "",
+  "lastSalePrice": "",
+  "zoning": "",
+  "zoningDescription": "",
+  "currentUse": "",
+  "listingPrice": "",
+  "listingBroker": "",
+  "tenant": "",
+  "leaseExpiration": "",
+  "annualRent": "",
+  "capRate": "",
+  "source": "Indiana Gateway / LoopNet public records",
+  "salesHistory": [],
+  "taxHistory": [],
+  "notes": ""
+}
+
+If a field cannot be found from public sources, use "MANUAL_LOOKUP_REQUIRED" as the value.
+salesHistory should be an array of {date, price, buyer, seller} objects.
+taxHistory should be an array of {year, amount} objects.
+Do not guess or estimate. Only return data found in public records.`;
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
+      'anthropic-dangerous-direct-browser-access': 'true',
+      'content-type': 'application/json'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1500,
+      tools: [{
+        name: 'web_search',
+        type: 'web_search_20250305',
+        max_uses: 5
+      }],
+      messages: [{ role: 'user', content: prompt }]
+    })
   });
 
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: { message: resp.statusText } }));
-    const msg = err?.error?.message || resp.statusText;
-    if (resp.status === 401) throw new Error('Invalid API key — check ⚙ Settings.');
-    if (resp.status === 529) throw new Error('Anthropic servers busy — wait a moment and try again.');
-    throw new Error(`API error ${resp.status}: ${msg}`);
+  const d = await r.json();
+  // Extract the JSON from the response
+  let jsonStr = null;
+  if (d.content) {
+    for (const block of d.content) {
+      if (block.type === 'text') {
+        const match = block.text.match(/\{[\s\S]*\}/);
+        if (match) { jsonStr = match[0]; break; }
+      }
+    }
   }
 
-  const data = await resp.json();
-  const text = data.content.filter(b => b.type==='text').map(b => b.text).join('');
-  let parsed = null;
-  try {
-    const clean = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-    const m = clean.match(/\{[\s\S]*\}/);
-    if (m) parsed = JSON.parse(m[0]);
-  } catch(e) {}
-  return { text, parsed };
-}
-
-/* ═══════════════════════════════════════════════
-   STEP 1 — PUBLIC DATA RESEARCH
-═══════════════════════════════════════════════ */
-async function runResearch() {
-  const addr = document.getElementById('addr').value.trim();
-  if (!addr) { setStatus('research-status','Please enter a property address.','warn'); return; }
-
-  document.getElementById('research-btn').disabled = true;
-  document.getElementById('research-results').innerHTML = '';
-  setProgress('search');
-  setStatus('research-status','Searching public records...','running');
-
-  const system = `You are an Indiana commercial real estate appraisal data specialist following USPAP standards.
-Use ONLY free public sources: Marion County Assessor, Indiana DLGF, US Census ACS, Bureau of Labor Statistics,
-FEMA Flood Map Service, US Treasury, Federal Reserve, IBRC stats.indiana.edu.
-Return ONLY a single raw valid JSON object — no markdown fences, no explanation.`;
-
-  const user = `Research this Indiana commercial property for a USPAP appraisal report: ${addr}
-
-Return one raw JSON object with these exact top-level keys. Each key contains { data:{}, source:"", confidence:"high|medium|low", notes:"" }
-
-parcel: data = { parcelNumber, landSqFt, landAcres, buildingSqFt, yearBuilt, constructionType, propertyClass, taxDistrict, neighborhood }
-ownership: data = { currentOwner, ownerAddress, listingPrice, listingBroker, askingOAR, salesHistory:[{date,grantor,grantee,price}] }
-assessment: data = { assessedValueLand, assessedValueImprovement, assessedValueTotal, depreciationPct, taxHistory:[{year,rate,amount}] }
-zoning: data = { classification, districtName, jurisdiction, permittedUses, legalConforming }
-flood: data = { zone, panelNumber, effectiveDate, lomc, riskDescription }
-demographics: data = { perryTwpPop2020, perryTwpPop2024, marionCoPop2024, indyMSAPop2024, medIncPerryTwp, medIncMarionCo, medIncIndyMSA, medIncIndiana, medIncUS, censusYear }
-employment: data = { indyMSA, marionCo, indiana, national, period }
-rates: data = { treasury1yr, treasury2yr, treasury5yr, treasury10yr, sofr10yr, asOf }`;
+  if (!jsonStr) return { assessor: { note: 'No structured data returned from AI lookup — try manual research' } };
 
   try {
-    let { text, parsed } = await callClaude(system, user, true);
-
-    if (!parsed) {
-      setProgress('parse');
-      setStatus('research-status','Structuring data...','running');
-      const r2 = await callClaude(
-        'Output ONLY a valid raw JSON object. No markdown, no backticks, no explanation whatsoever.',
-        `Convert this appraisal research into a JSON object with keys: parcel, ownership, assessment, zoning, flood, demographics, employment, rates — each with {data, source, confidence, notes}.\n\n${text}`
-      );
-      parsed = r2.parsed;
-    }
-
-    if (!parsed) throw new Error(
-      'Could not structure the returned data. Try again or check that your API key has credits.');
-
-    setProgress('excel');
-    setStatus('research-status','Writing data to Excel...','running');
-    await writePublicDataToExcel(parsed, addr);
-
-    setProgress(null);
-    setStatus('research-status',
-      'All public data written to Excel. Proceed to Tab 2 for CoStar data.','success');
-    renderPublicPreview(parsed);
-
+    const parsed = JSON.parse(jsonStr);
+    return { assessor: parsed };
   } catch(e) {
-    setProgress(null);
-    setStatus('research-status', e.message, 'error');
+    return { assessor: { note: 'Parse error — raw: ' + jsonStr.slice(0, 200) } };
   }
-  document.getElementById('research-btn').disabled = false;
 }
 
-/* ─── Write public data to Excel ─── */
-async function writePublicDataToExcel(d, addr) {
-  await Excel.run(async ctx => {
-    const wb = ctx.workbook;
+// ============================================================
+// RENDER FUNCTIONS
+// ============================================================
+function row(label, value, badge) {
+  if (!value || value === 'null' || value === 'undefined') return '';
+  const isManual = value === 'MANUAL_LOOKUP_REQUIRED';
+  const valDisplay = isManual ? '<span class="manual-flag">⚠ Manual lookup required</span>' : escHtml(value);
+  const badgeHtml = badge ? `<span class="source-badge badge-${badge}">${badge === 'public' ? 'PUBLIC' : badge === 'costar' ? 'COSTAR' : 'MANUAL'}</span>` : '';
+  return `<div class="data-row"><span class="data-label">${label}</span><span class="data-value">${valDisplay} ${badgeHtml}</span></div>`;
+}
+function section(title) { return `<div class="section-header">${title}</div>`; }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(n, prefix='', suffix='') { return (n && !isNaN(n)) ? prefix + Number(n).toLocaleString() + suffix : null; }
+function pct(n) { return (n && !isNaN(n)) ? Number(n).toFixed(1) + '%' : null; }
 
-    function getOrCreate(name) {
-      let s;
-      try { s = wb.sheets.getItem(name); }
-      catch(e) { s = wb.sheets.add(name); }
-      return s;
-    }
+function renderPublicData() {
+  const d = publicData;
+  const a = d.assessor || {};
+  const c = d.census || {};
+  const bls = d.bls || {};
+  const t = d.treasury || {};
+  const f = d.fema || {};
+  const co = c.county || {};
+  const cs = c.township || {};
+  const st = c.state || {};
+  const nat = c.national || {};
 
-    function hdr(sheet, row, lastCol) {
-      const r = sheet.getRange(`A${row}:${lastCol}${row}`);
-      r.format.fill.color = '#1a56a0';
-      r.format.font.color = '#ffffff';
-      r.format.font.bold  = true;
-      r.format.font.size  = 10;
-    }
+  let html = '';
 
-    function title(sheet, cell, text) {
-      const r = sheet.getRange(cell);
-      r.values = [[text]];
-      r.format.font.bold  = true;
-      r.format.font.color = '#1a56a0';
-      r.format.font.size  = 11;
-    }
+  html += section('📍 Property Identification');
+  html += row('Address', d.address, 'public');
+  html += row('County', d.countyName, 'public');
+  html += row('MSA', d.msaName, 'public');
+  html += row('Coordinates', d.lat && d.lon ? `${Number(d.lat).toFixed(5)}, ${Number(d.lon).toFixed(5)}` : null, 'public');
+  html += row('Parcel Number', a.parcelNumber, 'public');
+  html += row('Current Owner', a.currentOwner, 'public');
 
-    function kv(sheet, row, label, value, col='A') {
-      const nextCol = col === 'A' ? 'B' : 'E';
-      sheet.getRange(`${col}${row}`).values   = [[label]];
-      sheet.getRange(`${nextCol}${row}`).values = [[value || '']];
-      sheet.getRange(`${col}${row}`).format.font.color = '#666666';
-      sheet.getRange(`${nextCol}${row}`).format.font.bold = true;
-    }
+  html += section('🏢 Physical Description');
+  html += row('Property Class / Use', a.propertyClass || a.currentUse, 'public');
+  html += row('Building Area', a.buildingSF ? fmt(a.buildingSF) + ' SF' : null, 'public');
+  html += row('Land Area', a.landArea ? a.landArea + ' ' + (a.landAreaUnits || '') : null, 'public');
+  html += row('Year Built', a.yearBuilt, 'public');
+  html += row('Construction Type', a.constructionType, 'public');
+  html += row('Condition', a.condition, 'public');
+  html += row('Zoning', a.zoning, 'public');
+  html += row('Zoning Description', a.zoningDescription, 'public');
 
-    const p  = d.parcel?.data       || {};
-    const o  = d.ownership?.data    || {};
-    const a  = d.assessment?.data   || {};
-    const z  = d.zoning?.data       || {};
-    const f  = d.flood?.data        || {};
-    const dm = d.demographics?.data || {};
-    const em = d.employment?.data   || {};
-    const r  = d.rates?.data        || {};
+  html += section('💰 Assessed Values & Taxes');
+  html += row('Assessed Land Value', fmt(a.assessedLandValue, '$'), 'public');
+  html += row('Assessed Improvement Value', fmt(a.assessedImprovementValue, '$'), 'public');
+  html += row('Total Assessed Value', fmt(a.assessedTotalValue, '$'), 'public');
+  html += row('Assessment Year', a.assessedValueYear, 'public');
+  html += row('Annual Taxes', fmt(a.annualTaxes, '$'), 'public');
+  html += row('Tax Year', a.taxYear, 'public');
 
-    /* ── Sheet: Property Summary ── */
-    const sum = getOrCreate('Property Summary');
-    sum.activate();
+  html += section('📋 Sales & Listing');
+  html += row('Last Sale Date', a.lastSaleDate, 'public');
+  html += row('Last Sale Price', fmt(a.lastSalePrice, '$'), 'public');
+  html += row('Current Listing Price', fmt(a.listingPrice, '$'), 'public');
+  html += row('Listing Broker', a.listingBroker, 'public');
+  html += row('Tenant', a.tenant, 'public');
+  html += row('Lease Expiration', a.leaseExpiration, 'public');
+  html += row('Annual Rent', fmt(a.annualRent, '$'), 'public');
+  html += row('Cap Rate', a.capRate, 'public');
 
-    sum.getRange('A1:F1').merge();
-    sum.getRange('A1').values = [['CRE APPRAISAL DATA  —  ' + addr.toUpperCase()]];
-    sum.getRange('A1').format.font.bold  = true;
-    sum.getRange('A1').format.font.size  = 13;
-    sum.getRange('A1').format.font.color = '#1a56a0';
-    sum.getRange('A2').values = [['Generated: ' + new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})]];
-    sum.getRange('A2').format.font.color = '#999999';
-    sum.getRange('A2').format.font.size  = 9;
+  html += section('🌊 Flood Zone (FEMA NFHL)');
+  const floodDesc = {
+    'A':'Special Flood Hazard (1% annual chance)', 'AE':'Special Flood Hazard — Base Flood Elevation',
+    'AO':'Special Flood Hazard — Shallow Flooding','AH':'Special Flood Hazard — Ponding',
+    'X':'Minimal Flood Hazard','D':'Possible Flood Hazard (Unstudied)','V':'Coastal High Hazard'
+  };
+  const fzone = f.zone || 'X';
+  html += row('Flood Zone', fzone + (f.subType ? ' / '+f.subType : ''), 'public');
+  html += row('Description', floodDesc[fzone] || fzone, 'public');
+  html += row('Special Flood Hazard Area', f.sfha ? 'YES — Flood insurance required' : 'NO', 'public');
+  html += row('Study Type', f.studyType || null, 'public');
 
-    title(sum, 'A4', 'PROPERTY IDENTIFICATION');
-    [['Parcel Number', p.parcelNumber],['Land Area (SF)', p.landSqFt],
-     ['Land Area (Acres)', p.landAcres],['Building Size (SF)', p.buildingSqFt],
-     ['Year Built', p.yearBuilt],['Construction Type', p.constructionType],
-     ['Property Class', p.propertyClass],['Tax District', p.taxDistrict],
-     ['Neighborhood', p.neighborhood]
-    ].forEach(([l,v],i) => kv(sum, 5+i, l, v));
+  html += section('👥 Demographics');
+  const subName = cs && cs.name ? cs.name : 'Township';
+  if (cs && cs.pop) {
+    html += row(subName + ' Population', fmt(cs.pop), 'public');
+    html += row(subName + ' Median HH Income', fmt(cs.medHHIncome, '$'), 'public');
+    html += row(subName + ' Median Gross Rent', fmt(cs.medGrossRent, '$'), 'public');
+  }
+  html += row(d.countyName + ' Population', fmt(co.pop), 'public');
+  html += row(d.countyName + ' Median HH Income', fmt(co.medHHIncome, '$'), 'public');
+  html += row('Indiana Median HH Income', fmt(st ? st.medHHIncome : null, '$'), 'public');
+  html += row('US Median HH Income', fmt(nat ? nat.medHHIncome : null, '$'), 'public');
 
-    title(sum, 'A15', 'OWNERSHIP');
-    [['Current Owner', o.currentOwner],['Owner Address', o.ownerAddress],
-     ['Listing Price', o.listingPrice ? '$'+Number(o.listingPrice).toLocaleString() : ''],
-     ['Listing Broker', o.listingBroker],
-     ['Asking OAR', o.askingOAR ? o.askingOAR+'%' : '']
-    ].forEach(([l,v],i) => kv(sum, 16+i, l, v));
+  html += section('📊 Unemployment Rate (BLS)');
+  if (bls.blsCounty) html += row(d.countyName, pct(bls.blsCounty.value) + ' (' + bls.blsCounty.period + ')', 'public');
+  if (bls.blsMSA) html += row(d.msaName + ' MSA', pct(bls.blsMSA.value) + ' (' + bls.blsMSA.period + ')', 'public');
+  if (bls.blsState) html += row('Indiana', pct(bls.blsState.value) + ' (' + bls.blsState.period + ')', 'public');
+  if (bls.blsNational) html += row('United States', pct(bls.blsNational.value) + ' (' + bls.blsNational.period + ')', 'public');
 
-    title(sum, 'A22', 'ASSESSMENT');
-    [['Land AV', a.assessedValueLand ? '$'+Number(a.assessedValueLand).toLocaleString() : ''],
-     ['Improvement AV', a.assessedValueImprovement ? '$'+Number(a.assessedValueImprovement).toLocaleString() : ''],
-     ['Total AV', a.assessedValueTotal ? '$'+Number(a.assessedValueTotal).toLocaleString() : ''],
-     ['Depreciation', a.depreciationPct ? a.depreciationPct+'%' : '']
-    ].forEach(([l,v],i) => kv(sum, 23+i, l, v));
+  html += section('📈 Treasury Yield Curve');
+  if (t) {
+    html += row('As of', t.date || null, 'public');
+    html += row('1-Year Treasury', t.y1 ? t.y1 + '%' : null, 'public');
+    html += row('2-Year Treasury', t.y2 ? t.y2 + '%' : null, 'public');
+    html += row('5-Year Treasury', t.y5 ? t.y5 + '%' : null, 'public');
+    html += row('7-Year Treasury', t.y7 ? t.y7 + '%' : null, 'public');
+    html += row('10-Year Treasury', t.y10 ? t.y10 + '%' : null, 'public');
+    html += row('20-Year Treasury', t.y20 ? t.y20 + '%' : null, 'public');
+    html += row('30-Year Treasury', t.y30 ? t.y30 + '%' : null, 'public');
+  }
 
-    title(sum, 'D4', 'ZONING');
-    [['Classification', z.classification],['District', z.districtName],
-     ['Jurisdiction', z.jurisdiction],['Legal Conforming', z.legalConforming],
-     ['Permitted Uses', z.permittedUses]
-    ].forEach(([l,v],i) => kv(sum, 5+i, l, v, 'D'));
+  if (a.notes && a.notes !== 'MANUAL_LOOKUP_REQUIRED') {
+    html += `<div class="manual-flag mt-2">📝 ${escHtml(a.notes)}</div>`;
+  }
 
-    title(sum, 'D11', 'FEMA FLOOD ZONE');
-    [['Zone', f.zone],['Panel Number', f.panelNumber],
-     ['Effective Date', f.effectiveDate],['LOMC/LOMAR', f.lomc],
-     ['Risk Description', f.riskDescription]
-    ].forEach(([l,v],i) => kv(sum, 12+i, l, v, 'D'));
-
-    sum.getRange('A:B').format.columnWidth = 24;
-    sum.getRange('D:E').format.columnWidth = 24;
-    sum.getRange('B:B').format.columnWidth = 30;
-    sum.getRange('E:E').format.columnWidth = 30;
-
-    /* ── Sheet: Sales History ── */
-    const sh = getOrCreate('Sales History');
-    sh.getRange('A1').values = [['SALES HISTORY  —  ' + addr]];
-    sh.getRange('A1').format.font.bold = true; sh.getRange('A1').format.font.color = '#1a56a0'; sh.getRange('A1').format.font.size = 12;
-    sh.getRange('A3:D3').values = [['Date','Grantor (Seller)','Grantee (Buyer)','Sale Price']];
-    hdr(sh, 3, 'D');
-    (o.salesHistory||[]).forEach((s,i) => {
-      sh.getRange(`A${4+i}:D${4+i}`).values = [[
-        s.date||'', s.grantor||s.from||'', s.grantee||s.to||'',
-        s.price ? '$'+Number(s.price).toLocaleString() : ''
-      ]];
-      if(i%2===1) sh.getRange(`A${4+i}:D${4+i}`).format.fill.color = '#f5f5f5';
-    });
-    sh.getRange('A:D').format.columnWidth = 28;
-
-    /* ── Sheet: Tax History ── */
-    const th = getOrCreate('Tax History');
-    th.getRange('A1').values = [['TAX HISTORY  —  ' + addr]];
-    th.getRange('A1').format.font.bold = true; th.getRange('A1').format.font.color = '#1a56a0'; th.getRange('A1').format.font.size = 12;
-    th.getRange('A3:C3').values = [['Year / Period','Rate per $100 AV','Annual Taxes']];
-    hdr(th, 3, 'C');
-    (a.taxHistory||[]).forEach((t,i) => {
-      th.getRange(`A${4+i}:C${4+i}`).values = [[
-        t.year||t.period||'',
-        t.rate ? '$'+t.rate : '',
-        t.amount ? '$'+Number(t.amount).toLocaleString() : ''
-      ]];
-      if(i%2===1) th.getRange(`A${4+i}:C${4+i}`).format.fill.color = '#f5f5f5';
-    });
-    th.getRange('A:C').format.columnWidth = 26;
-
-    /* ── Sheet: Demographics ── */
-    const ds = getOrCreate('Demographics');
-    ds.getRange('A1').values = [['DEMOGRAPHICS & EMPLOYMENT']];
-    ds.getRange('A1').format.font.bold = true; ds.getRange('A1').format.font.color = '#1a56a0'; ds.getRange('A1').format.font.size = 12;
-    ds.getRange('A2').values = [['Source: US Census Bureau ACS · Bureau of Labor Statistics']];
-    ds.getRange('A2').format.font.color = '#999999'; ds.getRange('A2').format.font.size = 9;
-
-    title(ds,'A4','POPULATION TRENDS');
-    ds.getRange('A5:C5').values=[['Area','2020','2024']]; hdr(ds,5,'C');
-    [['Perry Township', dm.perryTwpPop2020, dm.perryTwpPop2024],
-     ['Marion County', '', dm.marionCoPop2024],
-     ['Indianapolis MSA', '', dm.indyMSAPop2024]
-    ].forEach((row,i) => ds.getRange(`A${6+i}:C${6+i}`).values=[row]);
-
-    title(ds,'A10','MEDIAN HOUSEHOLD INCOME');
-    ds.getRange('A11:B11').values=[['Area','Median HH Income']]; hdr(ds,11,'B');
-    [['Perry Township', dm.medIncPerryTwp],['Marion County', dm.medIncMarionCo],
-     ['Indianapolis MSA', dm.medIncIndyMSA],['Indiana', dm.medIncIndiana],
-     ['United States', dm.medIncUS]
-    ].forEach(([l,v],i) => { ds.getRange(`A${12+i}`).values=[[l]]; ds.getRange(`B${12+i}`).values=[[v||'']]; });
-
-    title(ds,'A18','UNEMPLOYMENT RATES');
-    ds.getRange('A19:B19').values=[['Area','Rate']]; hdr(ds,19,'B');
-    [['Indianapolis MSA', em.indyMSA ? em.indyMSA+'%' : ''],
-     ['Marion County', em.marionCo ? em.marionCo+'%' : ''],
-     ['Indiana', em.indiana ? em.indiana+'%' : ''],
-     ['National', em.national ? em.national+'%' : ''],
-     ['Period', em.period||'']
-    ].forEach(([l,v],i) => { ds.getRange(`A${20+i}`).values=[[l]]; ds.getRange(`B${20+i}`).values=[[v||'']]; });
-
-    ds.getRange('A:C').format.columnWidth = 26;
-
-    /* ── Sheet: Interest Rates ── */
-    const rs = getOrCreate('Interest Rates');
-    rs.getRange('A1').values=[['US TREASURY & SOFR RATES']];
-    rs.getRange('A1').format.font.bold=true; rs.getRange('A1').format.font.color='#1a56a0'; rs.getRange('A1').format.font.size=12;
-    rs.getRange('A2').values=[['Source: US Treasury / Federal Reserve  |  As of: '+(r.asOf||'N/A')]];
-    rs.getRange('A2').format.font.color='#999999'; rs.getRange('A2').format.font.size=9;
-    rs.getRange('A4:B4').values=[['Instrument','Rate']]; hdr(rs,4,'B');
-    [['1-Year US Treasury', r.treasury1yr ? r.treasury1yr+'%' : ''],
-     ['2-Year US Treasury', r.treasury2yr ? r.treasury2yr+'%' : ''],
-     ['5-Year US Treasury', r.treasury5yr ? r.treasury5yr+'%' : ''],
-     ['10-Year US Treasury', r.treasury10yr ? r.treasury10yr+'%' : ''],
-     ['10-Year SOFR Swap', r.sofr10yr ? r.sofr10yr+'%' : '']
-    ].forEach(([l,v],i) => {
-      rs.getRange(`A${5+i}:B${5+i}`).values=[[l,v]];
-      if(i%2===1) rs.getRange(`A${5+i}:B${5+i}`).format.fill.color='#f5f5f5';
-    });
-    rs.getRange('A:B').format.columnWidth=30;
-
-    await ctx.sync();
-  });
+  document.getElementById('publicDataOutput').innerHTML = html || '<p class="text-muted text-center" style="font-size:12px;">No data returned.</p>';
 }
 
-/* ═══════════════════════════════════════════════
-   STEP 3 — PARSE COSTAR DATA
-═══════════════════════════════════════════════ */
-async function parseCoStar() {
-  const sales    = document.getElementById('paste-sales').value.trim();
-  const leases   = document.getElementById('paste-leases').value.trim();
-  const market   = document.getElementById('paste-market').value.trim();
-  const listings = document.getElementById('paste-listings').value.trim();
-  const subject  = document.getElementById('paste-subject').value.trim();
+function renderCoStarGuide() {
+  const a = publicData.address || document.getElementById('addressInput').value;
+  const msaName = publicData.msaName || 'Indianapolis';
 
-  if (!sales && !leases && !market && !listings && !subject) {
-    setStatus('parse-status','Please paste at least one section of CoStar data first.','warn');
+  const html = `
+    <p style="font-size:11px;color:#555;">Log into <a href="https://www.costar.com" target="_blank">CoStar Suite</a>, then follow these steps for <strong>${escHtml(a)}</strong>:</p>
+
+    <div class="checklist-item">
+      <div class="checklist-step">1. Subject Property Record</div>
+      <div style="font-size:11px;color:#555;">Search the property address → open the detail page → click "Export" → copy the full property summary. Paste in Tab 3 → "Subject Property".</div>
+    </div>
+
+    <div class="checklist-item">
+      <div class="checklist-step">2. Comparable Sales</div>
+      <div style="font-size:11px;color:#555;">Go to Comps → Sales → filter: same property type, ${escHtml(msaName)} market, last 36 months, similar size (±30%). Export to CSV or copy the table. Paste in Tab 3 → "Comparable Sales".<br>
+      <em>Target: 5–8 comparable sales.</em></div>
+    </div>
+
+    <div class="checklist-item">
+      <div class="checklist-step">3. Comparable Leases</div>
+      <div style="font-size:11px;color:#555;">Go to Comps → Leases → same filters as sales. Export. Paste in Tab 3 → "Comparable Leases".<br>
+      <em>Target: 3–6 lease comparables.</em></div>
+    </div>
+
+    <div class="checklist-item">
+      <div class="checklist-step">4. Market Analytics</div>
+      <div style="font-size:11px;color:#555;">Go to Analytics → select ${escHtml(msaName)} → same property type → copy the Market Stats panel (vacancy, availability, NNN asking rent, absorption, under construction). Paste in Tab 3 → "Market Analytics".</div>
+    </div>
+
+    <div class="checklist-item">
+      <div class="checklist-step">5. Active Listings</div>
+      <div style="font-size:11px;color:#555;">Go to Properties → For Sale → same filters. Export top listings. Paste in Tab 3 → "Active Listings".</div>
+    </div>
+
+    <div class="checklist-item">
+      <div class="checklist-step">6. SOFR Swap Rates (Manual)</div>
+      <div style="font-size:11px;color:#555;">No free API available. Retrieve 5-year and 10-year SOFR swap rates from <a href="https://www.cmegroup.com/trading/interest-rates/" target="_blank">CME Group</a> or your Bloomberg terminal. Enter manually in the Market Rates Excel sheet.</div>
+    </div>
+  `;
+
+  document.getElementById('costarGuide').innerHTML = html;
+}
+
+// ============================================================
+// COSTAR PASTE PARSER
+// ============================================================
+async function parseCoStarData() {
+  if (!apiKey) {
+    alert('API key required to parse CoStar data. Add it in Settings.');
     return;
   }
 
-  document.getElementById('parse-btn').disabled = true;
-  setStatus('parse-status','Parsing CoStar data...','running');
+  const sections = [
+    { key: 'sales',    el: 'costarSales',    label: 'comparable sales' },
+    { key: 'leases',   el: 'costarLeases',   label: 'comparable leases' },
+    { key: 'market',   el: 'costarMarket',   label: 'market analytics' },
+    { key: 'listings', el: 'costarListings', label: 'active listings' },
+    { key: 'subject',  el: 'costarSubject',  label: 'subject property detail' }
+  ];
 
-  const payload = [
-    sales    ? '=== COMPARABLE SALES ===\n'    + sales    : '',
-    leases   ? '=== COMPARABLE LEASES ===\n'   + leases   : '',
-    market   ? '=== MARKET ANALYTICS ===\n'    + market   : '',
-    listings ? '=== ACTIVE LISTINGS ===\n'     + listings : '',
-    subject  ? '=== SUBJECT DETAIL ===\n'      + subject  : '',
-  ].filter(Boolean).join('\n\n');
+  const toProcess = sections.filter(s => document.getElementById(s.el).value.trim());
+  if (toProcess.length === 0) { alert('Paste CoStar data into at least one box first.'); return; }
 
-  try {
-    const { parsed } = await callClaude(
-      'You are a commercial real estate data parser. Return ONLY a raw valid JSON object. No markdown, no backticks, no explanation.',
-      `Parse this CoStar export data into a JSON object with these keys:
-- comparableSales: [{address,saleDate,salePrice,buildingSF,pricePerSF,landSF,yearBuilt,occupancyAtSale,capRate,buyer,seller,notes}]
-- comparableLeases: [{address,tenant,leaseDate,leaseExpiration,leaseType,rentPerSF,spaceSF,notes}]
-- marketStats: {indyInventorySF,indyVacancyPct,indyAvgRentSF,indyAbsorptionYTD,submarket,subInventorySF,subVacancyPct,subAvgRentSF,subAbsorptionYTD,capRateRange,dataAsOf}
-- activeListings: [{address,listingPrice,pricePerSF,tenant,buildingSF,oarPct,walt,notes}]
-- subjectDetail: {buildingSF,yearBuilt,trueOwner,listingPrice,listingBroker,listingOAR,tenant,leaseExpiration,leaseType,rentPerSF,leaseOptions,notes}
+  log('🔄 Parsing CoStar data with AI…');
 
-Data to parse:\n\n${payload}`
-    );
+  for (const s of toProcess) {
+    const rawText = document.getElementById(s.el).value.trim();
+    const prompt = `Parse this CoStar ${s.label} data and return ONLY a valid JSON object/array with the key information. Extract all relevant fields. For comparable sales include: address, sale_date, sale_price, price_per_sf, building_sf, cap_rate, buyer, seller. For comparable leases include: address, lease_date, tenant, suite_sf, rent_psf, lease_term, lease_type. For market analytics include: market, submarket, vacancy_rate, availability_rate, asking_rent_nnn, net_absorption_sf, under_construction_sf, avg_cap_rate. For active listings include: address, list_price, price_per_sf, building_sf, cap_rate, broker. For subject property include all available fields. Return only JSON, no explanation.\n\nData:\n${rawText.slice(0,3000)}`;
 
-    if (!parsed) throw new Error(
-      'Could not parse the pasted data. Try cleaning it up slightly and try again.');
-
-    setStatus('parse-status','Writing CoStar data to Excel...','running');
-    await writeCoStarToExcel(parsed);
-    setStatus('parse-status',
-      'CoStar data written. Check Comp Sales, Comp Leases, Market Stats, and Active Listings sheets.','success');
-
-  } catch(e) {
-    setStatus('parse-status', e.message, 'error');
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','content-type':'application/json'},
+        body: JSON.stringify({ model:'claude-haiku-4-5', max_tokens:2000, messages:[{role:'user',content:prompt}] })
+      });
+      const d = await r.json();
+      const text = d.content && d.content[0] ? d.content[0].text : '';
+      const match = text.match(/[\[{][\s\S]*[\]}]/);
+      if (match) {
+        costarData[s.key] = JSON.parse(match[0]);
+        log(`✅ Parsed ${s.label}`);
+      }
+    } catch(e) { log(`⚠ Could not parse ${s.label}: ` + e.message); }
   }
-  document.getElementById('parse-btn').disabled = false;
+
+  renderReportData();
+  await writeCoStarToExcel();
 }
 
-/* ─── Write CoStar data to Excel ─── */
-async function writeCoStarToExcel(d) {
+function renderReportData() {
+  const keys = Object.keys(costarData);
+  if (!publicData.address && keys.length === 0) return;
+
+  let html = '<div class="section-header">Combined Report Data</div>';
+  html += '<p style="font-size:11px;color:#555;">Sources: <span class="source-badge badge-public">PUBLIC</span> = government APIs &nbsp; <span class="source-badge badge-costar">COSTAR</span> = CoStar Suite export</p>';
+  html += '<p style="font-size:11px;color:#4CAF50;">✅ Click "Write All to Excel" in Tab 1 to write all data to workbook sheets.</p>';
+
+  if (publicData.address) {
+    html += '<div class="data-row"><span class="data-label">Address</span><span class="data-value">'+escHtml(publicData.address)+' <span class="source-badge badge-public">PUBLIC</span></span></div>';
+  }
+
+  if (costarData.sales) {
+    const s = Array.isArray(costarData.sales) ? costarData.sales : [costarData.sales];
+    html += `<div class="section-header">Comparable Sales (${s.length} records) <span class="source-badge badge-costar">COSTAR</span></div>`;
+    s.slice(0,3).forEach((c,i) => {
+      html += `<div class="data-row"><span class="data-label">Comp ${i+1}</span><span class="data-value">${escHtml(c.address||c.sale_price||JSON.stringify(c).slice(0,50))}</span></div>`;
+    });
+  }
+
+  if (costarData.market) {
+    const m = Array.isArray(costarData.market) ? costarData.market[0] : costarData.market;
+    html += '<div class="section-header">Market Analytics <span class="source-badge badge-costar">COSTAR</span></div>';
+    Object.entries(m).slice(0,8).forEach(([k,v]) => {
+      html += row(k.replace(/_/g,' '), String(v), 'costar');
+    });
+  }
+
+  document.getElementById('reportDataOutput').innerHTML = html;
+}
+
+// ============================================================
+// EXCEL WRITE FUNCTIONS
+// ============================================================
+async function writeToExcel() {
   await Excel.run(async ctx => {
     const wb = ctx.workbook;
 
-    function getOrCreate(name) {
-      let s; try { s = wb.sheets.getItem(name); } catch(e) { s = wb.sheets.add(name); } return s;
-    }
-    function hdr(sheet, row, lastCol) {
-      const r = sheet.getRange(`A${row}:${lastCol}${row}`);
-      r.format.fill.color='#1a56a0'; r.format.font.color='#ffffff';
-      r.format.font.bold=true; r.format.font.size=10;
-    }
-
-    /* Comp Sales */
-    const cs = d.comparableSales || [];
-    if (cs.length) {
-      const s = getOrCreate('Comp Sales');
-      s.getRange('A1').values=[['COMPARABLE IMPROVED SALES — CoStar Suite']];
-      s.getRange('A1').format.font.bold=true; s.getRange('A1').format.font.color='#1a56a0'; s.getRange('A1').format.font.size=12;
-      s.getRange('A3:K3').values=[['Address','Sale Date','Sale Price','Bldg SF','$/SF','Land SF','Yr Built','Occupancy','Cap Rate','Buyer','Seller']];
-      hdr(s,3,'K');
-      cs.forEach((c,i) => {
-        s.getRange(`A${4+i}:K${4+i}`).values=[[
-          c.address||'', c.saleDate||'',
-          c.salePrice ? '$'+Number(c.salePrice).toLocaleString() : '',
-          c.buildingSF||'', c.pricePerSF ? '$'+c.pricePerSF : '',
-          c.landSF||'', c.yearBuilt||'', c.occupancyAtSale||'',
-          c.capRate ? c.capRate+'%' : '', c.buyer||'', c.seller||''
-        ]];
-        if(i%2===1) s.getRange(`A${4+i}:K${4+i}`).format.fill.color='#f5f5f5';
-      });
-      s.getRange('A:A').format.columnWidth=35; s.getRange('B:K').format.columnWidth=16;
+    async function getOrCreateSheet(name) {
+      let sheet;
+      try { sheet = wb.sheets.getItem(name); sheet.load('name'); await ctx.sync(); }
+      catch(e) { sheet = wb.sheets.add(name); await ctx.sync(); }
+      sheet.getUsedRange().clear();
+      return sheet;
     }
 
-    /* Comp Leases */
-    const cl = d.comparableLeases || [];
-    if (cl.length) {
-      const s = getOrCreate('Comp Leases');
-      s.getRange('A1').values=[['COMPARABLE LEASE COMPS — CoStar Suite']];
-      s.getRange('A1').format.font.bold=true; s.getRange('A1').format.font.color='#1a56a0'; s.getRange('A1').format.font.size=12;
-      s.getRange('A3:G3').values=[['Address','Tenant','Lease Date','Expiration','Type','Rent $/SF','Space SF']];
-      hdr(s,3,'G');
-      cl.forEach((c,i) => {
-        s.getRange(`A${4+i}:G${4+i}`).values=[[
-          c.address||'', c.tenant||'', c.leaseDate||'',
-          c.leaseExpiration||'', c.leaseType||'',
-          c.rentPerSF ? '$'+c.rentPerSF : '', c.spaceSF||''
-        ]];
-        if(i%2===1) s.getRange(`A${4+i}:G${4+i}`).format.fill.color='#f5f5f5';
-      });
-      s.getRange('A:A').format.columnWidth=35; s.getRange('B:G').format.columnWidth=18;
+    // ---- Sheet 1: Property Summary ----
+    {
+      const sh = await getOrCreateSheet('Property Summary');
+      const a = publicData.assessor || {};
+      const f = publicData.fema || {};
+      const rows = [
+        ['PROPERTY SUMMARY', ''],
+        ['Data Source', 'Value'],
+        ['--- Identification ---',''],
+        ['Address', publicData.address || ''],
+        ['County', publicData.countyName || ''],
+        ['MSA', publicData.msaName || ''],
+        ['Latitude', publicData.lat || ''],
+        ['Longitude', publicData.lon || ''],
+        ['Parcel Number', a.parcelNumber || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Current Owner', a.currentOwner || 'MANUAL_LOOKUP_REQUIRED'],
+        ['--- Physical ---',''],
+        ['Property Class', a.propertyClass || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Building Area (SF)', a.buildingSF || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Land Area', a.landArea ? a.landArea + ' ' + (a.landAreaUnits||'') : 'MANUAL_LOOKUP_REQUIRED'],
+        ['Year Built', a.yearBuilt || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Construction Type', a.constructionType || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Condition', a.condition || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Zoning', a.zoning || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Zoning Description', a.zoningDescription || 'MANUAL_LOOKUP_REQUIRED'],
+        ['--- Assessed Values (Indiana Gateway) ---',''],
+        ['Assessed Land Value', a.assessedLandValue || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Assessed Improvements', a.assessedImprovementValue || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Total Assessed Value', a.assessedTotalValue || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Assessment Year', a.assessedValueYear || ''],
+        ['Annual Taxes', a.annualTaxes || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Tax Year', a.taxYear || ''],
+        ['--- Sales / Listing ---',''],
+        ['Last Sale Date', a.lastSaleDate || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Last Sale Price', a.lastSalePrice || 'MANUAL_LOOKUP_REQUIRED'],
+        ['Listing Price', a.listingPrice || ''],
+        ['Listing Broker', a.listingBroker || ''],
+        ['Tenant', a.tenant || ''],
+        ['Lease Expiration', a.leaseExpiration || ''],
+        ['Annual Rent', a.annualRent || ''],
+        ['Cap Rate', a.capRate || ''],
+        ['--- Flood Zone (FEMA NFHL) ---',''],
+        ['Flood Zone', f.zone || 'X'],
+        ['Zone Sub-Type', f.subType || ''],
+        ['Special Flood Hazard Area', f.sfha ? 'YES' : 'NO'],
+        ['Study Type', f.studyType || ''],
+        ['Source', 'FEMA National Flood Hazard Layer REST API'],
+      ];
+      sh.getRange(`A1:B${rows.length}`).values = rows;
+      sh.getColumn('A').format.columnWidth = 240;
+      sh.getColumn('B').format.columnWidth = 300;
+      // Highlight MANUAL fields
+      for (let i = 0; i < rows.length; i++) {
+        if (String(rows[i][1]).includes('MANUAL_LOOKUP_REQUIRED')) {
+          sh.getRange(`B${i+1}`).format.fill.color = '#FFF3CD';
+        }
+      }
     }
 
-    /* Market Stats */
-    const m = d.marketStats || {};
-    if (Object.keys(m).length > 2) {
-      const s = getOrCreate('Market Stats');
-      s.getRange('A1').values=[['RETAIL MARKET ANALYTICS — CoStar Suite']];
-      s.getRange('A1').format.font.bold=true; s.getRange('A1').format.font.color='#1a56a0'; s.getRange('A1').format.font.size=12;
-      s.getRange('A3').values=[['INDIANAPOLIS RETAIL MARKET']]; s.getRange('A3').format.font.bold=true; s.getRange('A3').format.font.color='#1a56a0';
-      [['Total Inventory (SF)', m.indyInventorySF||''],['Vacancy Rate', m.indyVacancyPct ? m.indyVacancyPct+'%' : ''],
-       ['Avg Asking Rent ($/SF)', m.indyAvgRentSF ? '$'+m.indyAvgRentSF : ''],['Net Absorption YTD', m.indyAbsorptionYTD||'']
-      ].forEach(([l,v],i) => { s.getRange(`A${4+i}`).values=[[l]]; s.getRange(`B${4+i}`).values=[[v]]; s.getRange(`A${4+i}`).format.font.color='#666666'; s.getRange(`B${4+i}`).format.font.bold=true; });
-      s.getRange('A9').values=[[(m.submarket||'SUBMARKET')+' SUBMARKET']]; s.getRange('A9').format.font.bold=true; s.getRange('A9').format.font.color='#1a56a0';
-      [['Total Inventory (SF)', m.subInventorySF||''],['Vacancy Rate', m.subVacancyPct ? m.subVacancyPct+'%' : ''],
-       ['Avg Asking Rent ($/SF)', m.subAvgRentSF ? '$'+m.subAvgRentSF : ''],['Net Absorption YTD', m.subAbsorptionYTD||'']
-      ].forEach(([l,v],i) => { s.getRange(`A${10+i}`).values=[[l]]; s.getRange(`B${10+i}`).values=[[v]]; s.getRange(`A${10+i}`).format.font.color='#666666'; s.getRange(`B${10+i}`).format.font.bold=true; });
-      s.getRange('A15:B15').values=[['Cap Rate Range', m.capRateRange||'']];
-      s.getRange('A16:B16').values=[['Data As Of', m.dataAsOf||'']];
-      s.getRange('A:B').format.columnWidth=30;
+    // ---- Sheet 2: Demographics ----
+    {
+      const sh = await getOrCreateSheet('Demographics');
+      const c = publicData.census || {};
+      const bls = publicData.bls || {};
+      const co = c.county || {};
+      const cs = c.township || {};
+      const st = c.state || {};
+      const nat = c.national || {};
+
+      const rows = [
+        ['DEMOGRAPHICS & ECONOMIC INDICATORS','','','',''],
+        ['Source: US Census ACS 5-Year (2023), BLS LAUS','','','',''],
+        ['',''],
+        ['Metric', cs.name||'Township', publicData.countyName, 'Indiana', 'United States'],
+        ['Population', cs.pop||'', co.pop||'', st.pop||'', nat.pop||''],
+        ['Median Household Income', cs.medHHIncome||'', co.medHHIncome||'', st.medHHIncome||'', nat.medHHIncome||''],
+        ['Median Gross Rent', cs.medGrossRent||'', co.medGrossRent||'', st.medGrossRent||'', nat.medGrossRent||''],
+        ['Labor Force', cs.laborForce||'', co.laborForce||'', st.laborForce||'', nat.laborForce||''],
+        ['Unemployed', cs.unemployed||'', co.unemployed||'', st.unemployed||'', nat.unemployed||''],
+        ['',''],
+        ['UNEMPLOYMENT RATES (BLS LAUS)','','','',''],
+        ['Geography','Rate','Period','BLS Series',''],
+        [publicData.countyName, bls.blsCounty ? bls.blsCounty.value+'' : '', bls.blsCounty ? bls.blsCounty.period : '', `LAUCN18${publicData.countyFips}0000000003`, ''],
+        [publicData.msaName+' MSA', bls.blsMSA ? bls.blsMSA.value+'' : '', bls.blsMSA ? bls.blsMSA.period : '', bls.blsMSA ? 'LAUMT18'+((INDIANA_MSA[publicData.countyFips]||{}).blsCode||'')+'000000003' : '', ''],
+        ['Indiana', bls.blsState ? bls.blsState.value+'' : '', bls.blsState ? bls.blsState.period : '', 'LASST180000000000003', ''],
+        ['United States', bls.blsNational ? bls.blsNational.value+'' : '', bls.blsNational ? bls.blsNational.period : '', 'LNS14000000 (SA)', ''],
+      ];
+      sh.getRange(`A1:E${rows.length}`).values = rows;
+      sh.getRange('A1:E1').format.fill.color = '#1a3a5c';
+      sh.getRange('A1:E1').format.font.color = 'white';
+      sh.getRange('A4:E4').format.fill.color = '#d4edda';
+      sh.getRange('A11:E11').format.fill.color = '#1a3a5c';
+      sh.getRange('A11:E11').format.font.color = 'white';
+      sh.getRange('A12:E12').format.fill.color = '#d4edda';
+      [0,1,2,3,4].forEach(i => sh.getColumns().getItemAt && null);
+      sh.getColumn('A').format.columnWidth = 220;
     }
 
-    /* Active Listings */
-    const lst = d.activeListings || [];
-    if (lst.length) {
-      const s = getOrCreate('Active Listings');
-      s.getRange('A1').values=[['ACTIVE FOR-SALE LISTINGS — CoStar Suite']];
-      s.getRange('A1').format.font.bold=true; s.getRange('A1').format.font.color='#1a56a0'; s.getRange('A1').format.font.size=12;
-      s.getRange('A3:F3').values=[['Address','Listing Price','$/SF','Tenant','OAR','WALT']];
-      hdr(s,3,'F');
-      lst.forEach((l,i) => {
-        s.getRange(`A${4+i}:F${4+i}`).values=[[
-          l.address||'', l.listingPrice ? '$'+Number(l.listingPrice).toLocaleString() : '',
-          l.pricePerSF ? '$'+l.pricePerSF : '', l.tenant||'',
-          l.oarPct ? l.oarPct+'%' : '', l.walt||''
-        ]];
-        if(i%2===1) s.getRange(`A${4+i}:F${4+i}`).format.fill.color='#f5f5f5';
-      });
-      s.getRange('A:A').format.columnWidth=35; s.getRange('B:F').format.columnWidth=18;
+    // ---- Sheet 3: Market Rates ----
+    {
+      const sh = await getOrCreateSheet('Market Rates');
+      const t = publicData.treasury || {};
+      const rows = [
+        ['MARKET RATES & CAPITAL MARKETS',''],
+        ['Source: US Treasury H.15, Federal Reserve',''],
+        [''],
+        ['US TREASURY YIELD CURVE (Daily)',''],
+        ['As of', t.date||''],
+        ['1-Year', t.y1 ? t.y1+'%' : ''],
+        ['2-Year', t.y2 ? t.y2+'%' : ''],
+        ['5-Year', t.y5 ? t.y5+'%' : ''],
+        ['7-Year', t.y7 ? t.y7+'%' : ''],
+        ['10-Year', t.y10 ? t.y10+'%' : ''],
+        ['20-Year', t.y20 ? t.y20+'%' : ''],
+        ['30-Year', t.y30 ? t.y30+'%' : ''],
+        [''],
+        ['SOFR SWAP RATES (Manual Entry)',''],
+        ['5-Year SOFR Swap', 'MANUAL_LOOKUP_REQUIRED'],
+        ['10-Year SOFR Swap', 'MANUAL_LOOKUP_REQUIRED'],
+        ['Source', 'CME Group or Bloomberg terminal'],
+      ];
+      sh.getRange(`A1:B${rows.length}`).values = rows;
+      sh.getRange('A1:B1').format.fill.color = '#1a3a5c';
+      sh.getRange('A1:B1').format.font.color = 'white';
+      sh.getColumn('A').format.columnWidth = 200;
+      sh.getColumn('B').format.columnWidth = 200;
     }
 
-    /* Subject detail → Property Summary */
-    const sd = d.subjectDetail || {};
-    if (Object.keys(sd).length > 1) {
-      const s = getOrCreate('Property Summary');
-      s.getRange('D18').values=[['COSTAR SUBJECT DETAIL']];
-      s.getRange('D18').format.font.bold=true; s.getRange('D18').format.font.color='#1a56a0'; s.getRange('D18').format.font.size=11;
-      [['True Owner (CoStar)', sd.trueOwner||''],['Listing Price', sd.listingPrice ? '$'+Number(sd.listingPrice).toLocaleString() : ''],
-       ['Listing Broker', sd.listingBroker||''],['Listing OAR', sd.listingOAR ? sd.listingOAR+'%' : ''],
-       ['Tenant', sd.tenant||''],['Lease Expiration', sd.leaseExpiration||''],
-       ['Lease Type', sd.leaseType||''],['Rent/SF', sd.rentPerSF ? '$'+sd.rentPerSF+'/SF' : ''],
-       ['Lease Options', sd.leaseOptions||'']
-      ].forEach(([l,v],i) => {
-        s.getRange(`D${19+i}`).values=[[l]]; s.getRange(`E${19+i}`).values=[[v]];
-        s.getRange(`D${19+i}`).format.font.color='#666666'; s.getRange(`E${19+i}`).format.font.bold=true;
-      });
+    // ---- Sheet 4: Sales History ----
+    {
+      const sh = await getOrCreateSheet('Sales History');
+      const a = publicData.assessor || {};
+      const hist = Array.isArray(a.salesHistory) && a.salesHistory.length ? a.salesHistory : [];
+      const rows = [
+        ['SALES HISTORY','','',''],
+        ['Source: Indiana Sales Disclosure Forms / County Transfer Records','','',''],
+        ['Date','Price','Buyer','Seller'],
+        ...hist.map(h => [h.date||'', h.price||'', h.buyer||'', h.seller||'']),
+        ...(hist.length === 0 ? [['MANUAL_LOOKUP_REQUIRED','','','']] : [])
+      ];
+      sh.getRange(`A1:D${rows.length}`).values = rows;
+      sh.getRange('A1:D1').format.fill.color = '#1a3a5c';
+      sh.getRange('A1:D1').format.font.color = 'white';
+      sh.getRange('A3:D3').format.fill.color = '#d4edda';
+    }
+
+    // ---- Sheet 5: Tax History ----
+    {
+      const sh = await getOrCreateSheet('Tax History');
+      const a = publicData.assessor || {};
+      const hist = Array.isArray(a.taxHistory) && a.taxHistory.length ? a.taxHistory : [];
+      const rows = [
+        ['TAX HISTORY',''],
+        ['Source: Indiana DLGF / Indiana Gateway',''],
+        ['Year','Amount'],
+        ...hist.map(h => [h.year||'', h.amount||'']),
+        ...(hist.length === 0 ? [['MANUAL_LOOKUP_REQUIRED','']] : [])
+      ];
+      sh.getRange(`A1:B${rows.length}`).values = rows;
+      sh.getRange('A1:B1').format.fill.color = '#1a3a5c';
+      sh.getRange('A1:B1').format.font.color = 'white';
+    }
+
+    // ---- CoStar Sheets ----
+    const costarSheets = [
+      { name:'Comp Sales',      key:'sales',    headers:['Address','Sale Date','Sale Price','Price/SF','Bldg SF','Cap Rate','Buyer','Seller','Source'] },
+      { name:'Comp Leases',     key:'leases',   headers:['Address','Lease Date','Tenant','Suite SF','Rent/SF NNN','Lease Term','Lease Type','Source'] },
+      { name:'Market Analytics',key:'market',   headers:['Market','Submarket','Vacancy Rate','Availability','Asking Rent NNN','Net Absorption SF','Under Construction SF','Avg Cap Rate','Source'] },
+      { name:'Active Listings', key:'listings', headers:['Address','List Price','Price/SF','Bldg SF','Cap Rate','Broker','Source'] },
+    ];
+
+    for (const cs of costarSheets) {
+      const sh = await getOrCreateSheet(cs.name);
+      const data = costarData[cs.key];
+      const arr = data ? (Array.isArray(data) ? data : [data]) : [];
+      const rows = [
+        [cs.name + ' (CoStar Suite Export)', ...Array(cs.headers.length-1).fill('')],
+        ['Source: CoStar Suite — Exported by Appraiser', ...Array(cs.headers.length-1).fill('')],
+        cs.headers,
+        ...(arr.length > 0 ? arr.map(item => cs.headers.map(h => {
+          const k = h.toLowerCase().replace(/[/ ()]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+          const k2 = Object.keys(item).find(ik => ik.toLowerCase().replace(/[^a-z0-9]/g,'').includes(k.replace(/_/g,'')));
+          return k2 ? String(item[k2]) : '';
+        })) : [Array(cs.headers.length).fill('No data pasted — see Tab 3')])
+      ];
+      sh.getRange(`A1:${String.fromCharCode(64+cs.headers.length)}${rows.length}`).values = rows;
+      sh.getRange(`A1:${String.fromCharCode(64+cs.headers.length)}1`).format.fill.color = '#1a3a5c';
+      sh.getRange(`A1:${String.fromCharCode(64+cs.headers.length)}1`).format.font.color = 'white';
+      sh.getRange(`A3:${String.fromCharCode(64+cs.headers.length)}3`).format.fill.color = '#cce5ff';
     }
 
     await ctx.sync();
+    alert('✅ All data written to Excel workbook! Check the sheet tabs at the bottom.');
   });
 }
 
-/* ─── Task pane preview after public data loads ─── */
-function renderPublicPreview(d) {
-  const p = d.parcel?.data    || {};
-  const o = d.ownership?.data || {};
-  const a = d.assessment?.data || {};
-  const f = d.flood?.data     || {};
-
-  function kv(l,v) {
-    if(!v||v==='null'||v==='undefined') return '';
-    return `<div class="kv"><div class="kv-lbl">${l}</div><div class="kv-val">${v}</div></div>`;
-  }
-
-  document.getElementById('research-results').innerHTML = `
-    <div class="section" style="margin-top:10px">
-      <div class="section-title">Preview <span class="badge badge-public">Public</span></div>
-      <div class="kv-grid">
-        ${kv('Parcel #', p.parcelNumber)}
-        ${kv('Building SF', p.buildingSqFt)}
-        ${kv('Year built', p.yearBuilt)}
-        ${kv('Land acres', p.landAcres)}
-        ${kv('Owner', o.currentOwner)}
-        ${kv('Listing', o.listingPrice ? '$'+Number(o.listingPrice).toLocaleString() : '')}
-        ${kv('Total AV', a.assessedValueTotal ? '$'+Number(a.assessedValueTotal).toLocaleString() : '')}
-        ${kv('Flood zone', f.zone)}
-      </div>
-    </div>
-    <button class="btn btn-primary mt8" onclick="switchTab('costar')">
-      → Step 2: CoStar Checklist
-    </button>`;
+async function writeCoStarToExcel() {
+  await writeToExcel();
 }
+
+// ============================================================
+// TAB INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  ['tab2-link','tab3-link','tab4-link'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('click', function(e) {
+        e.preventDefault();
+        const map = {'tab2-link':'step2','tab3-link':'step3','tab4-link':'step4'};
+        showTab(map[id]);
+      });
+    }
+  });
+  document.getElementById('tab1-link').addEventListener('click', e => { e.preventDefault(); showTab('step1'); });
+  // Settings tab handled inline
+});
+
 </script>
 </body>
 </html>
