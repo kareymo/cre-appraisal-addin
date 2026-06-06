@@ -784,11 +784,8 @@ function downloadExcel() {
   const wb = XLSX.utils.book_new();
   const d = publicData, a = d.assessor||{}, c = d.census||{}, bls = d.bls||{}, t = d.treasury||{}, f = d.fema||{};
   const co = c.county||{}, cs = c.township||{}, st = c.state||{}, nat = c.national||{};
-
-  // ── Helper: formula cell referencing Action Items col D
-  // All manual fields live in fixed rows on '0 - Action Items', col D.
-  // The formula reads that cell so typing in Action Items auto-updates every sheet.
-  function r(row) { return { f: `'0 - Action Items'!D${row}` }; }
+  const M = 'MANUAL_LOOKUP_REQUIRED';
+  const isM = v => !v || String(v).includes(M) || String(v).trim() === '';
 
   function addSheet(name, rows) {
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -796,151 +793,265 @@ function downloadExcel() {
     return ws;
   }
 
-  // ── ACTION ITEMS MAP — FIXED ROWS (never change these numbers)
-  // Row → { sheet, field, source, autoVal }
-  const M = 'MANUAL_LOOKUP_REQUIRED';
-  const isM = v => !v || String(v).includes(M) || String(v).trim() === '';
-  const AIM = [
-    // row, sheet, field label, where to find it, auto-value
-    [5,  'Property Summary', 'Current Owner',          'gateway.ifionline.org — parcel detail',              a.currentOwner],
-    [6,  'Property Summary', 'Property Class / Use',   'gateway.ifionline.org — parcel detail',              a.propertyClass||a.currentUse],
-    [7,  'Property Summary', 'Land Area (Acres)',       'gateway.ifionline.org — parcel detail',              a.landArea],
-    [8,  'Property Summary', 'Year Built',              'gateway.ifionline.org — parcel detail',              a.yearBuilt],
-    [9,  'Property Summary', 'Construction Type',       'gateway.ifionline.org → Property Record Card link',  a.constructionType],
-    [10, 'Property Summary', 'Exterior Walls',          'gateway.ifionline.org → Property Record Card link',  a.exteriorWalls],
-    [11, 'Property Summary', 'Roof Type',               'gateway.ifionline.org → Property Record Card link',  a.roofType],
-    [12, 'Property Summary', 'HVAC',                    'gateway.ifionline.org → Property Record Card link',  a.hvac],
-    [13, 'Property Summary', 'Condition',               'Site inspection (verify in person)',                 a.condition],
-    [14, 'Property Summary', 'Zoning',                  'Indianapolis Planning / county zoning map',          a.zoning],
-    [15, 'Property Summary', 'Zoning Description',      'Indianapolis Planning / county zoning map',          a.zoningDescription],
-    [16, 'Property Summary', 'Assessed Land Value',     'gateway.ifionline.org → Values tab',                 a.assessedLandValue],
-    [17, 'Property Summary', 'Assessed Improvements',   'gateway.ifionline.org → Values tab',                 a.assessedImprovementValue],
-    [18, 'Property Summary', 'Total Assessed Value',    'gateway.ifionline.org → Values tab',                 a.assessedTotalValue],
-    [19, 'Property Summary', 'Assessment Year',         'gateway.ifionline.org → Values tab',                 a.assessedValueYear],
-    [20, 'Property Summary', 'Annual Taxes',            'gateway.ifionline.org → Tax Bill tab',               a.annualTaxes],
-    [21, 'Property Summary', 'Last Sale Date',          'gateway.ifionline.org → Transfer History tab',       a.lastSaleDate],
-    [22, 'Property Summary', 'Last Sale Price',         'Indiana DLGF Sales Disclosure Forms (dlgf.in.gov)',  a.lastSalePrice],
-    [23, 'Property Summary', 'Listing Price',           'LoopNet.com — search the address',                   a.listingPrice],
-    [24, 'Property Summary', 'Listing Broker',          'LoopNet.com — listing detail page',                  a.listingBroker],
-    [25, 'Property Summary', 'Tenant',                  'LoopNet.com or direct observation',                  a.tenant],
-    [26, 'Property Summary', 'Lease Expiration',        'LoopNet.com or tenant lease abstract',               a.leaseExpiration],
-    [27, 'Property Summary', 'Annual Rent (NNN)',       'LoopNet.com or tenant lease abstract',               a.annualRent],
-    [28, 'Property Summary', 'Cap Rate',                'LoopNet.com listing or sales comparison analysis',   a.capRate],
-    [29, 'Demographics',     'County Population',       'data.census.gov → ACS 5-Year, Table B01003',         co.pop],
-    [30, 'Demographics',     'County Median HH Income', 'data.census.gov → ACS 5-Year, Table B19013',         co.medHHIncome],
-    [31, 'Demographics',     'County Median Gross Rent','data.census.gov → ACS 5-Year, Table B25064',         co.medGrossRent],
-    [32, 'Demographics',     'Indiana Median HH Income','data.census.gov → ACS 5-Year, Table B19013',         st ? st.medHHIncome : null],
-    [33, 'Demographics',     'US Median HH Income',     'data.census.gov → ACS 5-Year, Table B19013',         nat ? nat.medHHIncome : null],
-    [34, 'Demographics',     'County Unemployment %',   'bls.gov/lau → Local Area Unemployment Statistics',   bls.blsCounty?.value],
-    [35, 'Demographics',     'Indiana Unemployment %',  'bls.gov/lau → Local Area Unemployment Statistics',   bls.blsState?.value],
-    [36, 'Demographics',     'US Unemployment %',       'bls.gov/lau → Local Area Unemployment Statistics',   bls.blsNational?.value],
-    [37, 'Market Rates',     '5-Year SOFR Swap Rate',   'cmegroup.com/trading/interest-rates (always manual)',null],
-    [38, 'Market Rates',     '10-Year SOFR Swap Rate',  'cmegroup.com/trading/interest-rates (always manual)',null],
-  ];
+  // ── REFERENCE HELPERS ──────────────────────────────────────────────────────
+  // r(n)      = Action Items col D, fixed row n  (always-required fields)
+  // va(f,v)   = auto-value if found, else VLOOKUP Action Items col B→D by field name
+  // adj(r,s)  = Action Items comp adjustment grid: row r, sale number s (1-7 → cols B-H)
+  // ps(n)     = Property Summary col B, row n
+  // mr(n)     = Market Rates col B, row n
+  const r   = n => ({ f: `'0 - Action Items'!D${n}` });
+  const adj = (row, sale) => ({ f: `'0 - Action Items'!${String.fromCharCode(65+sale)}${row}` });
+  const ps  = n => ({ f: `'Property Summary'!B${n}` });
+  const mr  = n => ({ f: `'Market Rates'!B${n}` });
+  // va: if auto-found → use static text; if missing → VLOOKUP Action Items by field name
+  const va  = (field, autoVal) => {
+    if (!isM(autoVal)) return String(autoVal);
+    return { f: `IFERROR(VLOOKUP("${field}",'0 - Action Items'!B:D,3,FALSE),"")` };
+  };
 
-  // ── Build Action Items sheet (fixed rows)
+  // ── ACTION ITEMS FIXED ROW MAP ─────────────────────────────────────────────
+  // Section A rows (always present, always need entry):
+  //  6: REPORT IDENTIFICATION label
+  //  7: Appraiser Name          14: Market Rent NNN ($/SF)
+  //  8: Effective Date          15: Market Vacancy %
+  //  9: Date of Inspection      16: Credit Loss %
+  // 10: Client / Intended User  17: Insurance $/SF
+  // 11: Intended Use            18: Property Mgmt %EGI
+  // 12: blank                   19: Maintenance $/SF
+  // 13: INCOME APPROACH label   20: Reserves $/SF
+  //                             21: Other Expenses $/SF
+  //                             22: Selected Cap Rate
+  //                             23: 5-Year SOFR Swap
+  //                             24: 10-Year SOFR Swap
+  // 25: blank
+  // 26: COMP ADJUSTMENTS label + Sale 1-7 col headers
+  // 27-35: adjustment rows (B27=S1 through H27=S7 for Property Rights, etc.)
+  // 36: blank
+  // 37: VALUE CONCLUSIONS label
+  // 38: Sales Comparison Value  43: Final Market Value
+  // 39: Income Approach Value   44: Exposure Time
+  // 40: Cost Approach Value     45: Marketing Time
+  // 41: Weight Sales %
+  // 42: Weight Income %
+  // 46: blank → Sales History starts at 47
+  // 47: SALES HISTORY header    55: TAX HISTORY header
+  // 48: col headers             56: col headers
+  // 49-53: 5 data rows          57-61: 5 data rows
+  // 54: blank                   62: blank
+  // Section B rows (dynamic, rows 63+): only missing/needed fields
+
+  // ── Build Action Items sheet ───────────────────────────────────────────────
   {
+    // Section A — fixed always-required blocks
     const aiRows = [
-      ['0 - ACTION ITEMS: MANUAL DATA ENTRY', '', '', ''],
-      [`Property: ${d.address||''}  |  Generated: ${new Date().toLocaleDateString()}`, '', '', ''],
+      // Row 1
+      ['0 - ACTION ITEMS   ←  TYPE HERE TO UPDATE ALL REPORT SHEETS','','',''],
+      // Row 2
+      [`Property: ${d.address||'(enter address)'}   |   ${new Date().toLocaleDateString()}`, '','',''],
+      // Row 3
       [''],
-      ['SHEET', 'FIELD', 'WHERE TO FIND IT', '✏ TYPE VALUE HERE  (auto-updates all sheets)'],
-      ...AIM.map(([, sheet, field, source, autoVal]) => {
-        const display = isM(autoVal) ? '' : (autoVal || '');
-        return [sheet, field, source, display];
-      }),
+      // Row 4  — col headers
+      ['Section','Field','Where to Find It','✏ Enter Value Here'],
+      // Row 5
       [''],
-      ['── SALES HISTORY ──  Enter below. Auto-fills Sales History sheet.', '', '', ''],
-      ['Date', 'Sale Price', 'Buyer', 'Seller'],
-      ['','','',''], ['','','',''], ['','','',''], ['','','',''], ['','','',''],
+      // Row 6  — REPORT ID section header
+      ['── REPORT IDENTIFICATION ──','','',''],
+      // Rows 7-11
+      ['Report','Appraiser Name','Your name',''],
+      ['Report','Effective Date of Appraisal','Appraisal assignment date',''],
+      ['Report','Date of Inspection','Date you inspected the property',''],
+      ['Report','Client / Intended User','Client name',''],
+      ['Report','Intended Use','e.g. Mortgage financing, estate planning, etc.',''],
+      // Row 12
       [''],
-      ['── TAX HISTORY ──  Enter below. Auto-fills Tax History sheet.', '', ''],
-      ['Tax Year', 'Annual Amount', 'Notes'],
-      ['','',''], ['','',''], ['','',''], ['','',''], ['','',''],
+      // Row 13  — Income Approach section header
+      ['── INCOME APPROACH INPUTS ──','','',''],
+      // Rows 14-24
+      ['Income Approach','Market Rent NNN ($/SF/Yr)','From Comp Leases or CoStar market analytics',''],
+      ['Income Approach','Market Vacancy Rate (%)','From CoStar submarket analytics',''],
+      ['Income Approach','Credit Loss Rate (%)','Typically 1-2% for credit tenants',''],
+      ['Income Approach','Insurance ($/SF/Yr)','Estimate from market comparables',''],
+      ['Income Approach','Property Management (% of EGI)','Typically 3-5%',''],
+      ['Income Approach','Maintenance & Repairs ($/SF/Yr)','Estimate from market data',''],
+      ['Income Approach','Reserves for Replacement ($/SF/Yr)','Typically $0.10-$0.25/SF',''],
+      ['Income Approach','Other Expenses ($/SF/Yr)','If applicable',''],
+      ['Income Approach','Selected Cap Rate','From cap rate support analysis below',''],
+      ['Income Approach','5-Year SOFR Swap Rate','cmegroup.com/trading/interest-rates',''],
+      ['Income Approach','10-Year SOFR Swap Rate','cmegroup.com/trading/interest-rates',''],
+      // Row 25
+      [''],
+      // Row 26  — Comp Adjustments header + column labels
+      ['── COMP SALES ADJUSTMENTS ($/SF) ──','Sale 1','Sale 2','Sale 3','Sale 4','Sale 5','Sale 6','Sale 7'],
+      // Rows 27-35
+      ['Property Rights Conveyed','','','','','','',''],
+      ['Financing Terms','','','','','','',''],
+      ['Conditions of Sale','','','','','','',''],
+      ['Market Conditions (Time Adjustment)','','','','','','',''],
+      ['Location','','','','','','',''],
+      ['Building Size','','','','','','',''],
+      ['Age / Condition','','','','','','',''],
+      ['Lease Terms / Occupancy','','','','','','',''],
+      ['Other','','','','','','',''],
+      // Row 36
+      [''],
+      // Row 37  — Value Conclusions header
+      ['── VALUE CONCLUSIONS (Professional Judgment) ──','','',''],
+      // Rows 38-45
+      ['Reconciliation','Sales Comparison Approach — Indicated Value','From Report - Comp Sales Grid conclusion',''],
+      ['Reconciliation','Income Approach — Indicated Value','From Report - Income Approach conclusion',''],
+      ['Reconciliation','Cost Approach — Indicated Value','From Report - Cost Approach (if used)',''],
+      ['Reconciliation','Weight: Sales Comparison (%)','Professional judgment, e.g. 60%',''],
+      ['Reconciliation','Weight: Income Approach (%)','Professional judgment, e.g. 40%',''],
+      ['Reconciliation','FINAL MARKET VALUE (Rounded)','Reconciled conclusion',''],
+      ['Reconciliation','Estimated Exposure Time','Typical for property type and market',''],
+      ['Reconciliation','Estimated Marketing Time','Typical for property type and market',''],
+      // Row 46
+      [''],
+      // Row 47-53  — Sales History
+      ['── SALES HISTORY  (auto-fills Sales History sheet) ──','','',''],
+      ['Date','Sale Price','Buyer','Seller'],
+      ['','','',''],['','','',''],['','','',''],['','','',''],['','','',''],
+      // Row 54
+      [''],
+      // Row 55-61  — Tax History
+      ['── TAX HISTORY  (auto-fills Tax History sheet) ──','',''],
+      ['Tax Year','Annual Amount','Notes'],
+      ['','',''],['','',''],['','',''],['','',''],['','',''],
+      // Row 62
+      [''],
     ];
+
+    // Section B — dynamic: only fields that actually need action
+    const missing = [];
+    const chk = (sheet, field, source, val) => {
+      if (isM(val)) missing.push([sheet, field, source, '']);
+    };
+    chk('Property Summary','Current Owner','gateway.ifionline.org — parcel detail',a.currentOwner);
+    chk('Property Summary','Property Class / Use','gateway.ifionline.org — parcel detail',a.propertyClass||a.currentUse);
+    chk('Property Summary','Land Area (Acres)','gateway.ifionline.org — parcel detail',a.landArea);
+    chk('Property Summary','Year Built','gateway.ifionline.org — parcel detail',a.yearBuilt);
+    chk('Property Summary','Construction Type','gateway.ifionline.org → Property Record Card',a.constructionType);
+    chk('Property Summary','Condition','Site inspection — verify in person',a.condition);
+    chk('Property Summary','Zoning','Indianapolis Planning / county zoning map',a.zoning);
+    chk('Property Summary','Zoning Description','Indianapolis Planning / county zoning map',a.zoningDescription);
+    chk('Property Summary','Assessed Land Value','gateway.ifionline.org → Values tab',a.assessedLandValue);
+    chk('Property Summary','Assessed Improvements','gateway.ifionline.org → Values tab',a.assessedImprovementValue);
+    chk('Property Summary','Total Assessed Value','gateway.ifionline.org → Values tab',a.assessedTotalValue);
+    chk('Property Summary','Assessment Year','gateway.ifionline.org → Values tab',a.assessedValueYear);
+    chk('Property Summary','Annual Taxes','gateway.ifionline.org → Tax Bill tab',a.annualTaxes);
+    chk('Property Summary','Last Sale Date','gateway.ifionline.org → Transfer History',a.lastSaleDate);
+    chk('Property Summary','Last Sale Price','Indiana DLGF Sales Disclosure (dlgf.in.gov)',a.lastSalePrice);
+    chk('Property Summary','Listing Price','LoopNet.com — search the address',a.listingPrice);
+    chk('Property Summary','Listing Broker','LoopNet.com — listing detail page',a.listingBroker);
+    chk('Property Summary','Tenant','LoopNet.com or direct observation',a.tenant);
+    chk('Property Summary','Lease Expiration','LoopNet.com or tenant lease abstract',a.leaseExpiration);
+    chk('Property Summary','Annual Rent (NNN)','LoopNet.com or tenant lease abstract',a.annualRent);
+    chk('Property Summary','Cap Rate (Current)','LoopNet.com listing or sales analysis',a.capRate);
+    chk('Demographics','County Population','data.census.gov → ACS 5-Year Table B01003',co.pop);
+    chk('Demographics','County Median HH Income','data.census.gov → ACS 5-Year Table B19013',co.medHHIncome);
+    chk('Demographics','County Median Gross Rent','data.census.gov → ACS 5-Year Table B25064',co.medGrossRent);
+    chk('Demographics','Indiana Median HH Income','data.census.gov → ACS 5-Year Table B19013',st?st.medHHIncome:null);
+    chk('Demographics','US Median HH Income','data.census.gov → ACS 5-Year Table B19013',nat?nat.medHHIncome:null);
+    chk('Demographics','County Unemployment %','bls.gov/lau — Local Area Unemployment',bls.blsCounty?.value);
+    chk('Demographics','Indiana Unemployment %','bls.gov/lau — Local Area Unemployment',bls.blsState?.value);
+    chk('Demographics','US Unemployment %','bls.gov/lau — Local Area Unemployment',bls.blsNational?.value);
+
+    if (missing.length > 0) {
+      aiRows.push(['── MISSING DATA (look up and enter below) ──','','','']);
+      aiRows.push(['Sheet','Field','Where to Find It','✏ Enter Value Here']);
+      missing.forEach(row => aiRows.push(row));
+    } else {
+      aiRows.push(['✅ All data fields auto-populated — no missing data lookups needed!','','','']);
+    }
+
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
-    ws0['!cols'] = [{wch:20},{wch:28},{wch:44},{wch:34}];
-    // Mark the header row
-    ws0['A4'] = { v:'SHEET', t:'s' };
-    ws0['D4'] = { v:'✏ TYPE VALUE HERE  (updates all sheets)', t:'s' };
+    ws0['!cols'] = [{wch:22},{wch:32},{wch:44},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
   }
 
-  // ── Property Summary  (col B = formula refs for manual fields)
+  // ── PROPERTY SUMMARY ──────────────────────────────────────────────────────
   {
     const psRows = [
-      ['PROPERTY SUMMARY',''],
+      ['PROPERTY SUMMARY — Read only. All edits on "0 - Action Items" tab.',''],
       ['Field','Value'],
-      ['Address',             d.address||''],
-      ['County',              d.countyName||''],
-      ['MSA',                 d.msaName||''],
-      ['Lat / Lon',           d.lat&&d.lon ? d.lat+', '+d.lon : ''],
-      ['Parcel Number',       a.parcelNumber||''],
-      ['Current Owner',       r(5)],   // ← Action Items D5
-      ['Property Class/Use',  r(6)],
-      ['Building Area (SF)',  a.buildingSF||''],
-      ['Land Area (Acres)',   r(7)],
-      ['Land Area (SF)',      a.landAreaSF||''],
-      ['Year Built',          r(8)],
-      ['Effective Year Built',a.effectiveYearBuilt||''],
-      ['Construction Type',   r(9)],
-      ['Exterior Walls',      r(10)],
-      ['Roof Type',           r(11)],
-      ['HVAC',                r(12)],
-      ['Condition',           r(13)],
-      ['Stories',             a.stories||''],
-      ['Zoning',              r(14)],
-      ['Zoning Description',  r(15)],
-      ['Lease Type',          a.leaseType||''],
-      ['Assessed Land Value', r(16)],
-      ['Assessed Improvements',r(17)],
-      ['Total Assessed Value',r(18)],
-      ['Assessment Year',     r(19)],
-      ['Annual Taxes',        r(20)],
-      ['Last Sale Date',      r(21)],
-      ['Last Sale Price',     r(22)],
-      ['Listing Price',       r(23)],
-      ['Listing Broker',      r(24)],
-      ['Tenant',              r(25)],
-      ['Lease Expiration',    r(26)],
-      ['Annual Rent (NNN)',   r(27)],
-      ['Cap Rate',            r(28)],
-      ['Flood Zone',          (f.zone||'X')+(f.subType?' / '+f.subType:'')],
-      ['SFHA',                f.sfha ? 'YES — Flood insurance required' : 'NO'],
-      ['Note',                'Fill missing fields on "0 - Action Items" tab — updates automatically here'],
+      ['Address',              d.address||''],                           // B3
+      ['County',               d.countyName||''],                        // B4
+      ['MSA',                  d.msaName||''],                           // B5
+      ['Lat / Lon',            d.lat&&d.lon ? d.lat+', '+d.lon : ''],   // B6
+      ['Parcel Number',        a.parcelNumber||''],                       // B7
+      ['Current Owner',        va('Current Owner',a.currentOwner)],      // B8
+      ['Property Class/Use',   va('Property Class / Use',a.propertyClass||a.currentUse)], // B9
+      ['Building Area (SF)',   a.buildingSF||''],                        // B10
+      ['Land Area (Acres)',    va('Land Area (Acres)',a.landArea)],      // B11
+      ['Land Area (SF)',       a.landAreaSF||''],                        // B12
+      ['Year Built',           va('Year Built',a.yearBuilt)],           // B13
+      ['Effective Year Built', a.effectiveYearBuilt||''],               // B14
+      ['Construction Type',    va('Construction Type',a.constructionType)], // B15
+      ['Exterior Walls',       a.exteriorWalls||''],                    // B16
+      ['Roof Type',            a.roofType||''],                         // B17
+      ['HVAC',                 a.hvac||''],                             // B18
+      ['Condition',            va('Condition',a.condition)],            // B19
+      ['Stories',              a.stories||''],                          // B20
+      ['Zoning',               va('Zoning',a.zoning)],                 // B21
+      ['Zoning Description',   va('Zoning Description',a.zoningDescription)], // B22
+      ['Lease Type',           a.leaseType||''],                        // B23
+      ['Assessed Land Value',  va('Assessed Land Value',a.assessedLandValue)],   // B24
+      ['Assessed Improvements',va('Assessed Improvements',a.assessedImprovementValue)], // B25
+      ['Total Assessed Value', va('Total Assessed Value',a.assessedTotalValue)], // B26
+      ['Assessment Year',      va('Assessment Year',a.assessedValueYear)],       // B27
+      ['Annual Taxes',         va('Annual Taxes',a.annualTaxes)],               // B28
+      ['Last Sale Date',       va('Last Sale Date',a.lastSaleDate)],            // B29
+      ['Last Sale Price',      va('Last Sale Price',a.lastSalePrice)],          // B30
+      ['Listing Price',        va('Listing Price',a.listingPrice)],             // B31
+      ['Listing Broker',       va('Listing Broker',a.listingBroker)],           // B32
+      ['Tenant',               va('Tenant',a.tenant)],                          // B33
+      ['Lease Expiration',     va('Lease Expiration',a.leaseExpiration)],       // B34
+      ['Annual Rent (NNN)',    va('Annual Rent (NNN)',a.annualRent)],            // B35
+      ['Cap Rate',             va('Cap Rate (Current)',a.capRate)],              // B36
+      ['Flood Zone',           (f.zone||'X')+(f.subType?' / '+f.subType:'')],  // B37
+      ['SFHA',                 f.sfha ? 'YES — Flood insurance required' : 'NO'], // B38
+      [''],                                                                       // B39
+      ['── Report Identification (from Action Items) ──',''],                    // B40
+      ['Appraiser Name',       r(7)],   // B41
+      ['Effective Date',       r(8)],   // B42
+      ['Date of Inspection',   r(9)],   // B43
+      ['Client / Intended User',r(10)], // B44
+      ['Intended Use',         r(11)],  // B45
+      ['Type of Value',        'Market Value'],     // B46
+      ['Interest Appraised',   'Fee Simple Estate'], // B47
     ];
     const ws = addSheet('Property Summary', psRows);
-    ws['!cols'] = [{wch:26},{wch:40}];
+    ws['!cols'] = [{wch:26},{wch:42}];
   }
 
-  // ── Demographics  (formula refs for Census/BLS when blocked)
+  // ── DEMOGRAPHICS ──────────────────────────────────────────────────────────
   {
     const demRows = [
       ['DEMOGRAPHICS & UNEMPLOYMENT','','','',''],
       ['Source: US Census ACS 5-Year 2023, BLS LAUS  |  Fill missing on "0 - Action Items" tab','','','',''],
-      ['',''],
+      [''],
       ['Metric', cs.name||'Township', d.countyName, 'Indiana', 'United States'],
-      ['Population',        cs.pop||'', r(29), st?.pop||'',          nat?.pop||''],
-      ['Median HH Income',  cs.medHHIncome||'', r(30), r(32),        r(33)],
-      ['Median Gross Rent', cs.medGrossRent||'', r(31), st?.medGrossRent||'', nat?.medGrossRent||''],
-      ['Labor Force',       cs.laborForce||'', co.laborForce||'',  st?.laborForce||'', nat?.laborForce||''],
-      ['Unemployed',        cs.unemployed||'', co.unemployed||'',  st?.unemployed||'', nat?.unemployed||''],
+      ['Population',        cs.pop||'', va('County Population',co.pop),   st?.pop||'',         nat?.pop||''],
+      ['Median HH Income',  cs.medHHIncome||'', va('County Median HH Income',co.medHHIncome), va('Indiana Median HH Income',st?st.medHHIncome:null), va('US Median HH Income',nat?nat.medHHIncome:null)],
+      ['Median Gross Rent', cs.medGrossRent||'', va('County Median Gross Rent',co.medGrossRent), st?.medGrossRent||'', nat?.medGrossRent||''],
+      ['Labor Force',       cs.laborForce||'', co.laborForce||'', st?.laborForce||'', nat?.laborForce||''],
+      ['Unemployed',        cs.unemployed||'', co.unemployed||'', st?.unemployed||'', nat?.unemployed||''],
       [''],
       ['UNEMPLOYMENT RATES (BLS LAUS)','','',''],
       ['Geography','Rate','Period','BLS Series'],
-      [d.countyName,      r(34), bls.blsCounty?.period||'', `LAUCN18${d.countyFips}0000000003`],
-      [d.msaName+' MSA',  bls.blsMSA?.value||'', bls.blsMSA?.period||'', INDIANA_MSA[d.countyFips]?'LAUMT18'+INDIANA_MSA[d.countyFips].blsCode+'000000003':'N/A'],
-      ['Indiana',         r(35), bls.blsState?.period||'',  'LASST180000000000003'],
-      ['United States',   r(36), bls.blsNational?.period||'','LNS14000000 (SA)'],
+      [d.countyName,     va('County Unemployment %',bls.blsCounty?.value), bls.blsCounty?.period||'', `LAUCN18${d.countyFips}0000000003`],
+      [d.msaName+' MSA', bls.blsMSA?.value||'', bls.blsMSA?.period||'', INDIANA_MSA[d.countyFips]?'LAUMT18'+INDIANA_MSA[d.countyFips].blsCode+'000000003':'N/A'],
+      ['Indiana',        va('Indiana Unemployment %',bls.blsState?.value),  bls.blsState?.period||'',   'LASST180000000000003'],
+      ['United States',  va('US Unemployment %',bls.blsNational?.value),    bls.blsNational?.period||'','LNS14000000 (SA)'],
     ];
     addSheet('Demographics', demRows);
   }
 
-  // ── Market Rates  (SOFR refs Action Items)
+  // ── MARKET RATES ──────────────────────────────────────────────────────────
   {
     const mrRows = [
       ['MARKET RATES — US TREASURY YIELD CURVE',''],
-      ['Source: US Treasury H.15 (daily)  |  SOFR: fill on "0 - Action Items" tab',''],
+      ['Source: US Treasury H.15 (daily)  |  SOFR on "0 - Action Items" tab',''],
       ['As of', t.date||''],
       ['1-Year Treasury',  t.y1  ? t.y1+'%'  : ''],
       ['2-Year Treasury',  t.y2  ? t.y2+'%'  : ''],
@@ -950,72 +1061,82 @@ function downloadExcel() {
       ['20-Year Treasury', t.y20 ? t.y20+'%' : ''],
       ['30-Year Treasury', t.y30 ? t.y30+'%' : ''],
       [''],
-      ['SOFR SWAP RATES (Manual — CME Group)',''],
-      ['5-Year SOFR Swap',  r(37)],   // ← Action Items D37
-      ['10-Year SOFR Swap', r(38)],   // ← Action Items D38
+      ['SOFR SWAP RATES (from Action Items)',''],
+      ['5-Year SOFR Swap',  r(23)],
+      ['10-Year SOFR Swap', r(24)],
     ];
     addSheet('Market Rates', mrRows);
   }
 
-  // ── Sales & Tax History
-  const salesHist = Array.isArray(a.salesHistory) && a.salesHistory.length ? a.salesHistory : [];
-  addSheet('Sales History', [
-    ['SALES HISTORY','','',''],
-    ['Source: Indiana Sales Disclosure Forms / County Transfer Records','','',''],
-    ['Date','Price','Buyer','Seller'],
-    ...(salesHist.length ? salesHist.map(h=>[h.date||'',h.price||'',h.buyer||'',h.seller||'']) : [['MANUAL_LOOKUP_REQUIRED','','','']])
-  ]);
+  // ── SALES HISTORY ─────────────────────────────────────────────────────────
+  {
+    const salesHist = Array.isArray(a.salesHistory) && a.salesHistory.length ? a.salesHistory : [];
+    // Also pull from Action Items rows 49-53 (col A-D)
+    const aiSalesRefs = Array.from({length:5}, (_,i) => [
+      { f: `'0 - Action Items'!A${49+i}` },
+      { f: `'0 - Action Items'!B${49+i}` },
+      { f: `'0 - Action Items'!C${49+i}` },
+      { f: `'0 - Action Items'!D${49+i}` },
+    ]);
+    addSheet('Sales History', [
+      ['SALES HISTORY','','',''],
+      ['Source: Indiana Sales Disclosure Forms / County Transfer Records  |  Edit on "0 - Action Items"','','',''],
+      ['Date','Price','Buyer','Seller'],
+      ...(salesHist.length ? salesHist.map(h=>[h.date||'',h.price||'',h.buyer||'',h.seller||'']) : aiSalesRefs)
+    ]);
+  }
 
-  const taxHist = Array.isArray(a.taxHistory) && a.taxHistory.length ? a.taxHistory : [];
-  addSheet('Tax History', [
-    ['TAX HISTORY',''],
-    ['Source: Indiana DLGF / Indiana Gateway',''],
-    ['Year','Amount'],
-    ...(taxHist.length ? taxHist.map(h=>[h.year||'',h.amount||'']) : [['MANUAL_LOOKUP_REQUIRED','']])
-  ]);
+  // ── TAX HISTORY ───────────────────────────────────────────────────────────
+  {
+    const taxHist = Array.isArray(a.taxHistory) && a.taxHistory.length ? a.taxHistory : [];
+    const aiTaxRefs = Array.from({length:5}, (_,i) => [
+      { f: `'0 - Action Items'!A${57+i}` },
+      { f: `'0 - Action Items'!B${57+i}` },
+      { f: `'0 - Action Items'!C${57+i}` },
+    ]);
+    addSheet('Tax History', [
+      ['TAX HISTORY','',''],
+      ['Source: Indiana DLGF / Indiana Gateway  |  Edit on "0 - Action Items"','',''],
+      ['Year','Amount','Notes'],
+      ...(taxHist.length ? taxHist.map(h=>[h.year||'',h.amount||'','']) : aiTaxRefs)
+    ]);
+  }
 
-  // ── CoStar Sheets
-  // Field aliases: header label → possible key names from AI parse or raw CSV
+  // ── COSTAR DATA SHEETS ────────────────────────────────────────────────────
   const FIELD_ALIASES = {
-    'address':             ['address','property_address','propertyaddress','street','location'],
-    'sale date':           ['sale_date','saledate','transaction_date','close_date','sold_date'],
-    'sale price':          ['sale_price','saleprice','transaction_price','price','sold_price'],
-    'price/sf':            ['price_per_sf','pricepersf','price_sf','pricesf','psf','sale_price_psf','$/sf'],
-    'bldg sf':             ['building_sf','buildingsf','bldg_sf','bldgsf','gla','rentable_sf','building_size','square_feet','sf'],
-    'cap rate':            ['cap_rate','caprate','capitalization_rate'],
-    'buyer':               ['buyer','grantee','purchaser'],
-    'seller':              ['seller','grantor','vendor'],
-    'tenant':              ['tenant','tenant_name','lessee','occupant'],
-    'suite sf':            ['suite_sf','suitesize','suite_size','leased_sf','lease_sf','space_sf','rentable_sf'],
-    'rent/sf nnn':         ['rent_psf','rentpsf','rent_per_sf','base_rent_psf','nnn_rent','asking_rent','annual_rent_psf','rent'],
-    'lease type':          ['lease_type','leasetype','lease_structure'],
-    'lease term':          ['lease_term','leaseterm','term','term_months'],
-    'lease date':          ['lease_date','leasedate','commencement','start_date'],
-    'market':              ['market','market_name','metro'],
-    'submarket':           ['submarket','submarket_name','trade_area'],
-    'vacancy rate':        ['vacancy_rate','vacancyrate','vacancy','direct_vacancy'],
-    'asking rent nnn':     ['asking_rent_nnn','askingnnn','asking_rent','nnn_asking_rent','avg_asking_rent'],
-    'net absorption sf':   ['net_absorption_sf','netabsorption','absorption','net_absorption'],
+    'address':['address','property_address','propertyaddress','street','location'],
+    'sale date':['sale_date','saledate','transaction_date','close_date','sold_date'],
+    'sale price':['sale_price','saleprice','transaction_price','price','sold_price'],
+    'price/sf':['price_per_sf','pricepersf','price_sf','pricesf','psf','sale_price_psf','$/sf'],
+    'bldg sf':['building_sf','buildingsf','bldg_sf','bldgsf','gla','rentable_sf','building_size','square_feet','sf'],
+    'cap rate':['cap_rate','caprate','capitalization_rate'],
+    'buyer':['buyer','grantee','purchaser'],
+    'seller':['seller','grantor','vendor'],
+    'tenant':['tenant','tenant_name','lessee','occupant'],
+    'suite sf':['suite_sf','suitesize','suite_size','leased_sf','lease_sf','space_sf','rentable_sf'],
+    'rent/sf nnn':['rent_psf','rentpsf','rent_per_sf','base_rent_psf','nnn_rent','asking_rent','annual_rent_psf','rent'],
+    'lease type':['lease_type','leasetype','lease_structure'],
+    'lease term':['lease_term','leaseterm','term','term_months'],
+    'lease date':['lease_date','leasedate','commencement','start_date'],
+    'market':['market','market_name','metro'],
+    'submarket':['submarket','submarket_name','trade_area'],
+    'vacancy rate':['vacancy_rate','vacancyrate','vacancy','direct_vacancy'],
+    'asking rent nnn':['asking_rent_nnn','askingnnn','asking_rent','nnn_asking_rent','avg_asking_rent'],
+    'net absorption sf':['net_absorption_sf','netabsorption','absorption','net_absorption'],
     'under construction sf':['under_construction_sf','under_construction','construction_sf'],
-    'avg cap rate':        ['avg_cap_rate','average_cap_rate','avg_caprate','market_cap_rate'],
-    'list price':          ['list_price','listprice','asking_price','for_sale_price'],
-    'broker':              ['broker','listing_broker','agent','broker_name'],
+    'avg cap rate':['avg_cap_rate','average_cap_rate','avg_caprate','market_cap_rate'],
+    'list price':['list_price','listprice','asking_price','for_sale_price'],
+    'broker':['broker','listing_broker','agent','broker_name'],
   };
-
   function resolveField(item, header) {
     const aliases = FIELD_ALIASES[header.toLowerCase()] || [];
-    const itemKeys = Object.keys(item);
-    // Try each alias
+    const keys = Object.keys(item);
     for (const alias of aliases) {
-      const match = itemKeys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g,'') === alias.replace(/[^a-z0-9]/g,''));
+      const match = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g,'') === alias.replace(/[^a-z0-9]/g,''));
       if (match) return String(item[match]);
     }
-    // Fallback: loose substring match
-    const hNorm = header.toLowerCase().replace(/[^a-z0-9]/g,'');
-    const loose = itemKeys.find(k => {
-      const kn = k.toLowerCase().replace(/[^a-z0-9]/g,'');
-      return kn.includes(hNorm) || hNorm.includes(kn);
-    });
+    const hn = header.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const loose = keys.find(k => { const kn=k.toLowerCase().replace(/[^a-z0-9]/g,''); return kn.includes(hn)||hn.includes(kn); });
     return loose ? String(item[loose]) : '';
   }
 
@@ -1025,151 +1146,161 @@ function downloadExcel() {
     { name:'Market Analytics',key:'market',   headers:['Market','Submarket','Vacancy Rate','Asking Rent NNN','Net Absorption SF','Under Construction SF','Avg Cap Rate'] },
     { name:'Active Listings', key:'listings', headers:['Address','List Price','Price/SF','Bldg SF','Cap Rate','Broker'] },
   ];
-
   for (const cs of costarSheets) {
     const data = costarData[cs.key];
-    const arr = data ? (Array.isArray(data) ? data : [data]) : [];
-    const rows = [
+    const arr = data ? (Array.isArray(data)?data:[data]) : [];
+    addSheet(cs.name, [
       [cs.name+' — Source: CoStar Suite'],
       cs.headers,
-      ...(arr.length
-        ? arr.map(item => cs.headers.map(h => resolveField(item, h)))
-        : [Array(cs.headers.length).fill('No data — paste in Tab 3 and re-download')])
-    ];
-    addSheet(cs.name, rows);
+      ...(arr.length ? arr.map(item=>cs.headers.map(h=>resolveField(item,h))) : [Array(cs.headers.length).fill('No data — paste in Tab 3 and re-download')])
+    ]);
   }
 
-  // (Action Items sheet already built above with fixed rows — nothing to insert here)
+  // ── REPORT TABLES (fully linked) ──────────────────────────────────────────
+  // ps() row map: B3=Addr,B4=County,B5=MSA,B7=Parcel,B8=Owner,B9=Class,
+  //   B10=BldgSF,B11=LandAcres,B13=YearBuilt,B19=Condition,B21=Zoning,
+  //   B28=AnnualTaxes,B33=Tenant,B34=LeaseExp,B35=AnnualRent,B36=CapRate,
+  //   B37=FloodZone,B38=SFHA,B41=AppraiserName,B42=EffectiveDate
+  // adj(row, sale) — rows 27-35 = 9 adjustments
 
-  // ── REPORT TABLES ────────────────────────────────────────────────────────────
   // Comp Sales Adjustment Grid
   {
-    const compSales = costarData.sales ? (Array.isArray(costarData.sales)?costarData.sales:[costarData.sales]) : [];
-    const numComps = Math.min(compSales.length || 6, 7);
-    const compCols = ['Subject', ...Array.from({length:numComps},(_,i)=>`Sale ${i+1}`)];
-
-    const getSale = (i, field) => {
-      if (!compSales[i]) return '';
-      return resolveField(compSales[i], field) || '';
-    };
+    const sales = costarData.sales ? (Array.isArray(costarData.sales)?costarData.sales:[costarData.sales]) : [];
+    const n = Math.min(sales.length||6, 7);
+    const g = (i,f) => sales[i] ? resolveField(sales[i],f)||'' : '';
+    const cols = ['Subject',...Array.from({length:n},(_,i)=>`Sale ${i+1}`)];
 
     const gridRows = [
-      ['COMPARABLE SALES ADJUSTMENT GRID','','','','','','',''],
-      ['Source: CoStar Suite | USPAP Compliant','','','','','','',''],
-      ['', ...compCols],
-      ['Address',           d.address||'', ...Array.from({length:numComps},(_,i)=>getSale(i,'address'))],
-      ['Sale Date',         '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'sale date')||getSale(i,'sale_date'))],
-      ['Building SF',       a.buildingSF||'', ...Array.from({length:numComps},(_,i)=>getSale(i,'bldg sf')||getSale(i,'building_sf'))],
-      ['Land Area (AC)',    a.landArea||'', ...Array.from({length:numComps},(_,i)=>'')],
-      ['Year Built',        a.yearBuilt||'', ...Array.from({length:numComps},(_,i)=>'')],
-      ['SALE PRICE',        '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'sale price')||getSale(i,'sale_price'))],
-      ['Price Per SF',      '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'price/sf')||getSale(i,'price_per_sf'))],
-      ['Cap Rate at Sale',  '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'cap rate')||getSale(i,'cap_rate'))],
+      ['COMPARABLE SALES ADJUSTMENT GRID — Read only. Adjustments on "0 - Action Items" tab.','','','','','','',''],
+      ['', ...cols],
+      ['Address',        ps(3),  ...Array.from({length:n},(_,i)=>g(i,'address'))],
+      ['County',         ps(4),  ...Array(n).fill('')],
+      ['Sale Date',      '',     ...Array.from({length:n},(_,i)=>g(i,'sale date')||g(i,'sale_date'))],
+      ['Building SF',    ps(10), ...Array.from({length:n},(_,i)=>g(i,'bldg sf')||g(i,'building_sf'))],
+      ['Land Area (AC)', ps(11), ...Array(n).fill('')],
+      ['Year Built',     ps(13), ...Array(n).fill('')],
+      ['Condition',      ps(19), ...Array(n).fill('')],
+      ['Zoning',         ps(21), ...Array(n).fill('')],
+      ['SALE PRICE',     '',     ...Array.from({length:n},(_,i)=>g(i,'sale price')||g(i,'sale_price'))],
+      ['Price Per SF',   '',     ...Array.from({length:n},(_,i)=>g(i,'price/sf')||g(i,'price_per_sf'))],
+      ['Cap Rate',       '',     ...Array.from({length:n},(_,i)=>g(i,'cap rate')||g(i,'cap_rate'))],
       [''],
-      ['── ADJUSTMENTS ($/SF) ──'],
-      ['Property Rights',    '',   ...Array(numComps).fill('')],
-      ['Financing Terms',    '',   ...Array(numComps).fill('')],
-      ['Conditions of Sale', '',   ...Array(numComps).fill('')],
-      ['Market Conditions',  '',   ...Array(numComps).fill('')],
-      ['ADJUSTED PRICE/SF',  '',   ...Array(numComps).fill('')],
-      ['Location',           '',   ...Array(numComps).fill('')],
-      ['Building Size',      '',   ...Array(numComps).fill('')],
-      ['Age / Condition',    '',   ...Array(numComps).fill('')],
-      ['Lease Terms',        '',   ...Array(numComps).fill('')],
-      ['Other',              '',   ...Array(numComps).fill('')],
-      ['NET ADJUSTMENT $/SF','',   ...Array(numComps).fill('')],
-      ['NET ADJUSTMENT %',   '',   ...Array(numComps).fill('')],
-      ['GROSS ADJUSTMENT %', '',   ...Array(numComps).fill('')],
-      ['INDICATED VALUE/SF', '',   ...Array(numComps).fill('')],
+      ['── ADJUSTMENTS ($/SF) — enter on "0 - Action Items" tab ──','','','','','',''],
+      ['Property Rights',  '',  ...Array.from({length:n},(_,i)=>adj(27,i+1))],
+      ['Financing Terms',  '',  ...Array.from({length:n},(_,i)=>adj(28,i+1))],
+      ['Conditions',       '',  ...Array.from({length:n},(_,i)=>adj(29,i+1))],
+      ['Market Conditions','',  ...Array.from({length:n},(_,i)=>adj(30,i+1))],
+      ['Location',         '',  ...Array.from({length:n},(_,i)=>adj(31,i+1))],
+      ['Building Size',    '',  ...Array.from({length:n},(_,i)=>adj(32,i+1))],
+      ['Age / Condition',  '',  ...Array.from({length:n},(_,i)=>adj(33,i+1))],
+      ['Lease Terms',      '',  ...Array.from({length:n},(_,i)=>adj(34,i+1))],
+      ['Other',            '',  ...Array.from({length:n},(_,i)=>adj(35,i+1))],
       [''],
       ['VALUE CONCLUSION — SALES COMPARISON',''],
-      ['Range of Adjusted Values ($/SF):', ''],
-      ['Concluded Value Per SF:', ''],
-      ['Building Area (SF):', a.buildingSF||''],
-      ['INDICATED VALUE (Rounded):', ''],
+      ['Range of Adjusted Values:', ''],
+      ['Concluded Value Per SF:',   ''],
+      ['Building SF (from Property Summary):', ps(10)],
+      ['INDICATED VALUE (Rounded):', r(38)],
     ];
-    const wsGrid = XLSX.utils.aoa_to_sheet(gridRows);
-    wsGrid['!cols'] = [{wch:26},{wch:16},...Array(numComps).fill({wch:14})];
-    XLSX.utils.book_append_sheet(wb, wsGrid, 'Report - Comp Sales Grid');
+    const ws = XLSX.utils.aoa_to_sheet(gridRows);
+    ws['!cols'] = [{wch:28},{wch:16},...Array(n).fill({wch:14})];
+    XLSX.utils.book_append_sheet(wb, ws, 'Report - Comp Sales Grid');
   }
 
-  // Income Approach / Reconstructed Operating Statement
+  // Income Approach
   {
     const leases = costarData.leases ? (Array.isArray(costarData.leases)?costarData.leases:[costarData.leases]) : [];
-    const mktRent = leases.length ? resolveField(leases[0],'rent/sf nnn')||'' : '';
+    const mktCap = costarData.market ? (Array.isArray(costarData.market)?costarData.market[0]:costarData.market).avg_cap_rate||'' : '';
 
     const incomeRows = [
-      ['INCOME CAPITALIZATION APPROACH','','',''],
-      ['Reconstructed Operating Statement','','',''],
+      ['INCOME CAPITALIZATION APPROACH — Read only. Inputs on "0 - Action Items" tab.','','',''],
+      ['Subject:', ps(3), '', ''],
+      ['Building SF:', ps(10), '', ''],
+      ['Tenant:', ps(33), '', ''],
+      ['Lease Expiration:', ps(34), '', ''],
+      ['Effective Date:', ps(42), '', ''],
       [''],
-      ['POTENTIAL GROSS INCOME (PGI)','Annual $','$/SF/Yr','% of PGI'],
-      ['Base Rent — NNN', '', mktRent, ''],
-      ['CAM Reimbursements', '', '', ''],
-      ['Real Estate Tax Reimbursement', '', '', ''],
-      ['Other Income', '', '', ''],
-      ['TOTAL PGI', '', '', ''],
+      ['POTENTIAL GROSS INCOME (PGI)','Annual $','$/SF/Yr (from Action Items)','% of PGI'],
+      ['Base Rent — NNN (Market)',     '', r(14), ''],
+      ['CAM Reimbursements',           '', '', ''],
+      ['Real Estate Tax Reimbursement','', '', ''],
+      ['Other Income',                 '', '', ''],
+      ['TOTAL PGI',                    '', '', ''],
       [''],
-      ['VACANCY & CREDIT LOSS','Annual $','% of PGI','Notes'],
-      ['Market Vacancy', '', '', 'Market-derived'],
-      ['Credit Loss', '', '', '1-2% typical'],
-      ['TOTAL V&CL', '', '', ''],
+      ['VACANCY & CREDIT LOSS','Annual $','Rate (from Action Items)','Notes'],
+      ['Market Vacancy',  '', r(15), 'From CoStar market analytics'],
+      ['Credit Loss',     '', r(16), 'Typically 1-2%'],
+      ['TOTAL V&CL',      '', '', ''],
       [''],
-      ['EFFECTIVE GROSS INCOME (EGI)', '', '', ''],
+      ['EFFECTIVE GROSS INCOME (EGI)','', '', ''],
       [''],
-      ['OPERATING EXPENSES','Annual $','$/SF/Yr','% of EGI'],
-      ['Real Estate Taxes', a.annualTaxes||'', '', ''],
-      ['Insurance', '', '', ''],
-      ['Property Management', '', '', ''],
-      ['Maintenance & Repairs', '', '', ''],
-      ['Reserves for Replacement', '', '', ''],
-      ['Other Expenses', '', '', ''],
-      ['TOTAL OPERATING EXPENSES', '', '', ''],
+      ['OPERATING EXPENSES','Annual $','$/SF/Yr (from Action Items)','% of EGI'],
+      ['Real Estate Taxes',         ps(28), '',    '← from assessor (Property Summary)'],
+      ['Insurance',                 '',     r(17), '← from Action Items'],
+      ['Property Management',       '',     r(18), '← from Action Items'],
+      ['Maintenance & Repairs',     '',     r(19), '← from Action Items'],
+      ['Reserves for Replacement',  '',     r(20), '← from Action Items'],
+      ['Other Expenses',            '',     r(21), '← from Action Items'],
+      ['TOTAL OPERATING EXPENSES',  '', '', ''],
       [''],
-      ['NET OPERATING INCOME (NOI)', '', '', ''],
+      ['NET OPERATING INCOME (NOI)','', '', ''],
       [''],
       ['DIRECT CAPITALIZATION','','',''],
-      ['Net Operating Income (NOI):', '','',''],
-      ['Selected Cap Rate:', '','',''],
-      ['INDICATED VALUE (NOI ÷ Rate):', '','',''],
-      ['VALUE INDICATION (Rounded):', '','',''],
+      ['Net Operating Income (NOI):', '', '', ''],
+      ['Selected Cap Rate (Action Items):',  '', r(22), '← from Action Items'],
+      ['INDICATED VALUE (NOI ÷ Rate):', '', '', ''],
+      ['VALUE INDICATION (Rounded):', r(39), '', '← enter on Action Items'],
       [''],
       ['CAP RATE SUPPORT','Range','Selected','Source'],
-      ['CoStar Market Analytics', costarData.market?(Array.isArray(costarData.market)?costarData.market[0]:costarData.market).avg_cap_rate||'':'', '', 'CoStar'],
+      ['CoStar Market Analytics', mktCap, '', 'CoStar (auto)'],
       ['Comparable Sale Implied Rates', '', '', 'Comp Sales Grid'],
-      ['Band of Investment Method', '', '', 'Treasury + equity'],
-      ['SELECTED CAP RATE', '', '', ''],
+      ['10-Year Treasury:', mr(8), '', '← auto from Market Rates'],
+      ['5-Year SOFR Swap:', mr(13), '', '← from Action Items'],
+      ['10-Year SOFR Swap:', mr(14), '', '← from Action Items'],
+      ['SELECTED CAP RATE:', r(22), '', '← from Action Items'],
     ];
     const wsIncome = XLSX.utils.aoa_to_sheet(incomeRows);
-    wsIncome['!cols'] = [{wch:34},{wch:14},{wch:12},{wch:20}];
+    wsIncome['!cols'] = [{wch:36},{wch:16},{wch:22},{wch:34}];
     XLSX.utils.book_append_sheet(wb, wsIncome, 'Report - Income Approach');
   }
 
   // Reconciliation
   {
     const reconcRows = [
-      ['RECONCILIATION & FINAL VALUE CONCLUSION','','',''],
+      ['RECONCILIATION & FINAL VALUE CONCLUSION — Read only. Conclusions on "0 - Action Items".','','',''],
       [''],
-      ['APPROACH INDICATIONS','Value Indication','Value/SF','Weight'],
-      ['Sales Comparison Approach', '', '', ''],
-      ['Income Capitalization Approach', '', '', ''],
-      ['Cost Approach', '', '', '(supporting only)'],
+      ['SUBJECT PROPERTY','','',''],
+      ['Address:',          ps(3),  '', ''],
+      ['County:',           ps(4),  '', ''],
+      ['MSA:',              ps(5),  '', ''],
+      ['Parcel Number:',    ps(7),  '', ''],
+      ['Building SF:',      ps(10), '', ''],
+      ['Year Built:',       ps(13), '', ''],
+      ['Zoning:',           ps(21), '', ''],
+      ['Annual Taxes:',     ps(28), '', ''],
+      ['Tenant:',           ps(33), '', ''],
+      ['Lease Expiration:', ps(34), '', ''],
+      ['Flood Zone:',       ps(37), '', ''],
+      ['SFHA:',             ps(38), '', ''],
+      ['Appraiser:',        ps(41), '', ''],
+      ['Effective Date:',   ps(42), '', ''],
+      [''],
+      ['APPROACH INDICATIONS','Value Indication','Value/SF','Weight (from Action Items)'],
+      ['Sales Comparison Approach',       r(38), '', r(41)],
+      ['Income Capitalization Approach',  r(39), '', r(42)],
+      ['Cost Approach',                   r(40), '', '(supporting only)'],
       [''],
       ['FINAL VALUE CONCLUSION','','',''],
-      ['Property Address:', d.address||'','',''],
-      ['County:', d.countyName||'','',''],
-      ['Effective Date of Appraisal:', '','',''],
-      ['Interest Appraised:', 'Fee Simple Estate','',''],
+      ['Interest Appraised:', 'Fee Simple Estate', '', ''],
       [''],
-      ['MARKET VALUE AS OF:', '','',''],
-      ['Value Per SF:', '','',''],
-      ['Overall Implied Cap Rate:', '','',''],
+      ['FINAL MARKET VALUE:', r(43), '', '← from Action Items'],
       [''],
       ['EXPOSURE & MARKETING TIME','','',''],
-      ['Estimated Exposure Time:', '','',''],
-      ['Estimated Marketing Time:', '','',''],
+      ['Exposure Time:',  r(44), '', ''],
+      ['Marketing Time:', r(45), '', ''],
     ];
     const wsRecon = XLSX.utils.aoa_to_sheet(reconcRows);
-    wsRecon['!cols'] = [{wch:32},{wch:20},{wch:14},{wch:18}];
+    wsRecon['!cols'] = [{wch:30},{wch:22},{wch:14},{wch:28}];
     XLSX.utils.book_append_sheet(wb, wsRecon, 'Report - Reconciliation');
   }
 
@@ -1177,6 +1308,7 @@ function downloadExcel() {
   const safeName = (d.address||'Property').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_').slice(0,40);
   XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`);
 }
+
 
 // ── NOTES / WATCH LIST ────────────────────────────────────────────────────────
 function renderNotes() {
