@@ -347,7 +347,14 @@ async function fetchCensusACS(countyFips, cousub) {
   const VARS = 'NAME,B01003_001E,B19013_001E,B25064_001E,B23025_003E,B23025_005E';
 
   async function safeFetch(url) {
-    try { return await fetch(url).then(r=>r.json()); } catch(e) { return null; }
+    try {
+      const r = await fetch(url);
+      if (!r.ok) { log('⚠️ Census API: HTTP '+r.status); return null; }
+      return await r.json();
+    } catch(e) {
+      log('⚠️ Census API blocked (CORS) — demographics require manual entry from census.gov');
+      return null;
+    }
   }
 
   const [countyRes, stateRes, natRes] = await Promise.all([
@@ -361,7 +368,13 @@ async function fetchCensusACS(countyFips, cousub) {
     const r = rows[1];
     return { name:r[0], pop:+r[1]||null, medHHIncome:+r[2]||null, medGrossRent:+r[3]||null, laborForce:+r[4]||null, unemployed:+r[5]||null };
   }
-  return { census: { township: null, county: parse(countyRes), state: parse(stateRes), national: parse(natRes) } };
+  const result = { census: { township: null, county: parse(countyRes), state: parse(stateRes), national: parse(natRes) } };
+
+  // If all null, Census API is likely blocked — note it
+  if (!result.census.county && !result.census.state) {
+    result.censusBlocked = true;
+  }
+  return result;
 }
 
 // ── BLS ──────────────────────────────────────────────────────────────────────
@@ -452,36 +465,71 @@ async function fetchAssessorData(rawAddress, matchedAddress, countyFips, countyN
   if (!apiKey) return { assessor: { note: 'No API key — add in Settings for assessor lookup' } };
 
   const isMarion = countyFips === '097';
-  const assessorNote = isMarion
-    ? 'For Marion County: search https://assessor.indy.gov — enter the street address in the search box.'
-    : `For ${countyName}: search https://gateway.ifionline.org/assessedValue/ — select the county, then search by address.`;
 
-  const prompt = `You are a commercial real estate research assistant helping an Indiana USPAP-certified appraiser gather public record data. Your job is to search public sources and return everything you find.
+  const prompt = `You are a commercial real estate data researcher helping an Indiana USPAP-certified appraiser. Search public records and extract every data point you can find. Be thorough — use all 8 searches.
 
-PROPERTY TO RESEARCH: "${matchedAddress}"
-COUNTY: ${countyName} (Indiana FIPS 18${countyFips})
+TARGET PROPERTY: "${matchedAddress}"
+COUNTY: ${countyName}, Indiana (FIPS 18${countyFips})
 
-STEP 1 — ASSESSOR DATA
-${assessorNote}
-Search for this exact address. Look for: parcel number, owner name, land area, building SF, year built, construction type, property class, assessed land value, assessed improvement value, total assessed value, assessment year, annual tax amount, tax year, zoning.
+━━━ SEARCH 1: ASSESSOR SUMMARY ━━━
+${isMarion
+  ? `Go to https://assessor.indy.gov and search for "${matchedAddress}". Click the matching parcel to open the detail page.`
+  : `Go to https://gateway.ifionline.org/assessedValue/ — in the county dropdown select "${countyName.replace(' County','')}", then search by address "${matchedAddress}". Click the matching parcel.`
+}
+Extract from the summary page: parcel number, owner name, property class/use, land area (acres AND sq ft), building gross area (SF), year built, neighborhood code, township.
 
-STEP 2 — LISTING / INCOME DATA
-Search LoopNet.com for "${matchedAddress}" — look for: list price, listing broker, tenant name, lease expiration date, annual rent, cap rate, NOI.
-Also try searching Google for: "${matchedAddress}" site:loopnet.com
+━━━ SEARCH 2: PROPERTY RECORD CARD ━━━
+On the same assessor parcel page, look for a link called "Property Record Card", "PRC", "Building Detail", or "Improvement Detail". Click it or search for it.
+Extract: construction type (frame/masonry/steel), exterior walls, roof type, HVAC type, condition (excellent/good/average/fair/poor), number of stories, number of units, effective year built, depreciation.
 
-STEP 3 — SALES HISTORY
-Search Indiana public records for recent sales of this parcel. Try: "${matchedAddress} Indiana sales disclosure" and the assessor site transfer history.
+━━━ SEARCH 3: ASSESSED VALUES ━━━
+On the parcel page look for the assessed values tab or section.
+Extract: assessed land value (land only, NOT improvements), assessed improvement/building value, total assessed value, assessment year (should be most recent March 1 date).
 
-Return ONLY a single valid JSON object. No markdown, no explanation, just the JSON:
+━━━ SEARCH 4: TAX BILLS ━━━
+${isMarion
+  ? `Search https://www.indy.gov/activity/view-pay-property-taxes for parcel taxes, OR search Google: "${matchedAddress} Marion County property tax bill"`
+  : `Search https://gateway.ifionline.org/taxBill/ for the parcel tax bill, OR search Google: "${matchedAddress} ${countyName} property tax"`
+}
+Extract: most recent annual tax amount, tax year, spring installment, fall installment, any deductions.
+
+━━━ SEARCH 5: ZONING ━━━
+${isMarion
+  ? `Search https://www.indy.gov/activity/zoning-and-development or IndyGIS: https://maps.indy.gov/indygis/ for the zoning of "${matchedAddress}"`
+  : `Search Google: "${matchedAddress} ${countyName} Indiana zoning classification"`
+}
+Extract: zoning code (e.g. C-4, B-2, I-1), zoning description, overlay districts if any.
+
+━━━ SEARCH 6: TRANSFER/SALES HISTORY ━━━
+On the assessor parcel page, look for "Transfer History", "Sales History", or "Deed History" tab.
+Also search: "${matchedAddress} Indiana sales disclosure form"
+Extract last 3-5 sales: date, price, grantor (seller), grantee (buyer), deed type.
+
+━━━ SEARCH 7: LOOPNET LISTING ━━━
+Search Google: site:loopnet.com "${matchedAddress}"
+Also try: "${matchedAddress}" loopnet sale listing
+If found, extract: list price, price/SF, cap rate, NOI, listing broker name and firm, tenant name, lease type (NNN/MG/Gross), lease expiration, annual base rent, remaining term.
+
+━━━ SEARCH 8: FOLLOW-UP ━━━
+If you found a parcel number in Search 1, search Google for that parcel number to find any additional data sources or news about this property.
+
+━━━ OUTPUT ━━━
+Return ONLY this JSON object — no markdown fences, no explanation text before or after:
 {
   "parcelNumber": "",
   "propertyClass": "",
   "landArea": "",
-  "landAreaUnits": "acres or sq ft",
+  "landAreaUnits": "acres",
+  "landAreaSF": "",
   "buildingSF": "",
   "yearBuilt": "",
+  "effectiveYearBuilt": "",
   "constructionType": "",
+  "exteriorWalls": "",
+  "roofType": "",
+  "hvac": "",
   "condition": "",
+  "stories": "",
   "assessedLandValue": "",
   "assessedImprovementValue": "",
   "assessedTotalValue": "",
@@ -489,14 +537,16 @@ Return ONLY a single valid JSON object. No markdown, no explanation, just the JS
   "annualTaxes": "",
   "taxYear": "",
   "currentOwner": "",
-  "lastSaleDate": "",
-  "lastSalePrice": "",
   "zoning": "",
   "zoningDescription": "",
+  "propertyClass": "",
   "currentUse": "",
+  "lastSaleDate": "",
+  "lastSalePrice": "",
   "listingPrice": "",
   "listingBroker": "",
   "tenant": "",
+  "leaseType": "",
   "leaseExpiration": "",
   "annualRent": "",
   "capRate": "",
@@ -505,12 +555,12 @@ Return ONLY a single valid JSON object. No markdown, no explanation, just the JS
   "notes": ""
 }
 
-Rules:
-- Use "MANUAL_LOOKUP_REQUIRED" ONLY if you searched and genuinely could not find the value
-- Do NOT guess or estimate any value
-- salesHistory = array of {date, price, buyer, seller} from public transfer records
-- taxHistory = array of {year, amount} from assessor records
-- If you find a parcel number, use it to search for more detail`;
+CRITICAL RULES:
+- Use "MANUAL_LOOKUP_REQUIRED" ONLY as absolute last resort after genuinely searching
+- salesHistory: array of {date, price, buyer, seller} — include all transfers found
+- taxHistory: array of {year, amount} — include last 3-5 years if available
+- Dollar values: include the $ sign and commas (e.g. "$1,234,567")
+- Never invent or estimate data — only report what you actually found`;
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -518,7 +568,7 @@ Rules:
       headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','content-type':'application/json'},
       body: JSON.stringify({
         model:'claude-sonnet-4-5',
-        max_tokens:2500,
+        max_tokens:4000,
         tools:[{name:'web_search',type:'web_search_20250305',max_uses:8}],
         messages:[{role:'user',content:prompt}]
       })
@@ -713,12 +763,19 @@ function downloadExcel() {
     ['Current Owner', a.currentOwner||'MANUAL_LOOKUP_REQUIRED'],
     ['Property Class / Use', a.propertyClass||a.currentUse||'MANUAL_LOOKUP_REQUIRED'],
     ['Building Area (SF)', a.buildingSF||'MANUAL_LOOKUP_REQUIRED'],
-    ['Land Area', a.landArea ? a.landArea+' '+(a.landAreaUnits||'') : 'MANUAL_LOOKUP_REQUIRED'],
+    ['Land Area (Acres)', a.landArea||'MANUAL_LOOKUP_REQUIRED'],
+    ['Land Area (SF)', a.landAreaSF||'MANUAL_LOOKUP_REQUIRED'],
     ['Year Built', a.yearBuilt||'MANUAL_LOOKUP_REQUIRED'],
+    ['Effective Year Built', a.effectiveYearBuilt||''],
     ['Construction Type', a.constructionType||'MANUAL_LOOKUP_REQUIRED'],
+    ['Exterior Walls', a.exteriorWalls||''],
+    ['Roof Type', a.roofType||''],
+    ['HVAC', a.hvac||''],
     ['Condition', a.condition||'MANUAL_LOOKUP_REQUIRED'],
+    ['Stories', a.stories||''],
     ['Zoning', a.zoning||'MANUAL_LOOKUP_REQUIRED'],
     ['Zoning Description', a.zoningDescription||'MANUAL_LOOKUP_REQUIRED'],
+    ['Lease Type', a.leaseType||''],
     ['Assessed Land Value', a.assessedLandValue||'MANUAL_LOOKUP_REQUIRED'],
     ['Assessed Improvements', a.assessedImprovementValue||'MANUAL_LOOKUP_REQUIRED'],
     ['Total Assessed Value', a.assessedTotalValue||'MANUAL_LOOKUP_REQUIRED'],
@@ -793,10 +850,54 @@ function downloadExcel() {
   ]);
 
   // ── CoStar Sheets
+  // Field aliases: header label → possible key names from AI parse or raw CSV
+  const FIELD_ALIASES = {
+    'address':             ['address','property_address','propertyaddress','street','location'],
+    'sale date':           ['sale_date','saledate','transaction_date','close_date','sold_date'],
+    'sale price':          ['sale_price','saleprice','transaction_price','price','sold_price'],
+    'price/sf':            ['price_per_sf','pricepersf','price_sf','pricesf','psf','sale_price_psf','$/sf'],
+    'bldg sf':             ['building_sf','buildingsf','bldg_sf','bldgsf','gla','rentable_sf','building_size','square_feet','sf'],
+    'cap rate':            ['cap_rate','caprate','capitalization_rate'],
+    'buyer':               ['buyer','grantee','purchaser'],
+    'seller':              ['seller','grantor','vendor'],
+    'tenant':              ['tenant','tenant_name','lessee','occupant'],
+    'suite sf':            ['suite_sf','suitesize','suite_size','leased_sf','lease_sf','space_sf','rentable_sf'],
+    'rent/sf nnn':         ['rent_psf','rentpsf','rent_per_sf','base_rent_psf','nnn_rent','asking_rent','annual_rent_psf','rent'],
+    'lease type':          ['lease_type','leasetype','lease_structure'],
+    'lease term':          ['lease_term','leaseterm','term','term_months'],
+    'lease date':          ['lease_date','leasedate','commencement','start_date'],
+    'market':              ['market','market_name','metro'],
+    'submarket':           ['submarket','submarket_name','trade_area'],
+    'vacancy rate':        ['vacancy_rate','vacancyrate','vacancy','direct_vacancy'],
+    'asking rent nnn':     ['asking_rent_nnn','askingnnn','asking_rent','nnn_asking_rent','avg_asking_rent'],
+    'net absorption sf':   ['net_absorption_sf','netabsorption','absorption','net_absorption'],
+    'under construction sf':['under_construction_sf','under_construction','construction_sf'],
+    'avg cap rate':        ['avg_cap_rate','average_cap_rate','avg_caprate','market_cap_rate'],
+    'list price':          ['list_price','listprice','asking_price','for_sale_price'],
+    'broker':              ['broker','listing_broker','agent','broker_name'],
+  };
+
+  function resolveField(item, header) {
+    const aliases = FIELD_ALIASES[header.toLowerCase()] || [];
+    const itemKeys = Object.keys(item);
+    // Try each alias
+    for (const alias of aliases) {
+      const match = itemKeys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g,'') === alias.replace(/[^a-z0-9]/g,''));
+      if (match) return String(item[match]);
+    }
+    // Fallback: loose substring match
+    const hNorm = header.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const loose = itemKeys.find(k => {
+      const kn = k.toLowerCase().replace(/[^a-z0-9]/g,'');
+      return kn.includes(hNorm) || hNorm.includes(kn);
+    });
+    return loose ? String(item[loose]) : '';
+  }
+
   const costarSheets = [
-    { name:'Comp Sales', key:'sales', headers:['Address','Sale Date','Sale Price','Price/SF','Bldg SF','Cap Rate','Buyer','Seller'] },
-    { name:'Comp Leases', key:'leases', headers:['Address','Tenant','Suite SF','Rent/SF NNN','Lease Type','Lease Term','Lease Date'] },
-    { name:'Market Analytics', key:'market', headers:['Market','Submarket','Vacancy Rate','Asking Rent NNN','Net Absorption SF','Under Construction SF','Avg Cap Rate'] },
+    { name:'Comp Sales',      key:'sales',    headers:['Address','Sale Date','Sale Price','Price/SF','Bldg SF','Cap Rate','Buyer','Seller'] },
+    { name:'Comp Leases',     key:'leases',   headers:['Address','Tenant','Suite SF','Rent/SF NNN','Lease Type','Lease Term','Lease Date'] },
+    { name:'Market Analytics',key:'market',   headers:['Market','Submarket','Vacancy Rate','Asking Rent NNN','Net Absorption SF','Under Construction SF','Avg Cap Rate'] },
     { name:'Active Listings', key:'listings', headers:['Address','List Price','Price/SF','Bldg SF','Cap Rate','Broker'] },
   ];
 
@@ -806,11 +907,9 @@ function downloadExcel() {
     const rows = [
       [cs.name+' — Source: CoStar Suite'],
       cs.headers,
-      ...(arr.length ? arr.map(item => cs.headers.map(h => {
-        const k = h.toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_');
-        const match = Object.keys(item).find(ik => ik.toLowerCase().replace(/[^a-z0-9]/g,'').includes(k.replace(/_/g,'')));
-        return match ? String(item[match]) : '';
-      })) : [Array(cs.headers.length).fill('No data — paste in Tab 3 and re-download')])
+      ...(arr.length
+        ? arr.map(item => cs.headers.map(h => resolveField(item, h)))
+        : [Array(cs.headers.length).fill('No data — paste in Tab 3 and re-download')])
     ];
     addSheet(cs.name, rows);
   }
