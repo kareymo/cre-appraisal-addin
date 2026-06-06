@@ -495,39 +495,53 @@ async function fetchAssessorData(rawAddress, matchedAddress, countyFips, countyN
 TARGET PROPERTY: "${matchedAddress}"
 COUNTY: ${countyName}, Indiana (FIPS 18${countyFips})
 
-━━━ SEARCH 1: ASSESSOR SUMMARY ━━━
+━━━ SEARCH 1: ASSESSOR PARCEL — GET THE PARCEL NUMBER ━━━
 ${isMarion
-  ? `Go to https://assessor.indy.gov and search for "${matchedAddress}". Click the matching parcel to open the detail page.`
-  : `Go to https://gateway.ifionline.org/assessedValue/ — in the county dropdown select "${countyName.replace(' County','')}", then search by address "${matchedAddress}". Click the matching parcel.`
+  ? `Search https://assessor.indy.gov — enter "${matchedAddress}" in the search box. In the results list, click the matching property to open the FULL parcel detail page (not just the search results).`
+  : `Go to https://gateway.ifionline.org/assessedValue/ — select county "${countyName.replace(' County','')}", search by address "${matchedAddress}". In the results, click the parcel number link to open the FULL detail page.`
 }
-Extract from the summary page: parcel number, owner name, property class/use, land area (acres AND sq ft), building gross area (SF), year built, neighborhood code, township.
+From the detail page extract: parcel number, owner of record (the legal owner name), property class/use, land area in acres, land area in sq ft, building gross area (SF), year built, township, neighborhood.
+IMPORTANT: The owner name is usually labeled "Owner", "Owner of Record", or "Taxpayer" — get the full name exactly as shown.
 
-━━━ SEARCH 2: PROPERTY RECORD CARD ━━━
-On the same assessor parcel page, look for a link called "Property Record Card", "PRC", "Building Detail", or "Improvement Detail". Click it or search for it.
-Extract: construction type (frame/masonry/steel), exterior walls, roof type, HVAC type, condition (excellent/good/average/fair/poor), number of stories, number of units, effective year built, depreciation.
+━━━ SEARCH 2: ASSESSED VALUES — CRITICAL ━━━
+This is the most important search. On the parcel detail page from Search 1, find the section labeled "Assessment Values", "Assessed Value", "Value Summary", or similar.
+${isMarion
+  ? `On assessor.indy.gov parcel page, scroll down to find the "Current Assessment" table or "Value Summary" section.`
+  : `On the Indiana Gateway parcel page, look for tabs or sections labeled "Assessment", "Values", or "Value History". Click through to the detailed assessment breakdown.`
+}
+Also try: Search Google for: parcel number + "assessed value" + "Indiana" to find the specific values page.
+You MUST extract ALL THREE of these separately:
+  1. Assessed LAND value (land only — no building)
+  2. Assessed IMPROVEMENT value (building/structure only)
+  3. Total Assessed Value (land + improvements combined)
+  4. Assessment year (the March 1 assessment date year)
+These are three different dollar amounts. Do not use the total for all three.
 
-━━━ SEARCH 3: ASSESSED VALUES ━━━
-On the parcel page look for the assessed values tab or section.
-Extract: assessed land value (land only, NOT improvements), assessed improvement/building value, total assessed value, assessment year (should be most recent March 1 date).
+━━━ SEARCH 3: PROPERTY RECORD CARD ━━━
+On the assessor parcel page, look for a link or tab called "Property Record Card", "PRC", "Building Detail", or "Improvement Detail".
+Extract: construction type (frame/masonry/steel/concrete), exterior walls material, roof type, HVAC system, condition rating (excellent/good/average/fair/poor), number of stories, number of units, effective year built.
 
 ━━━ SEARCH 4: TAX BILLS ━━━
 ${isMarion
-  ? `Search https://www.indy.gov/activity/view-pay-property-taxes for parcel taxes, OR search Google: "${matchedAddress} Marion County property tax bill"`
-  : `Search https://gateway.ifionline.org/taxBill/ for the parcel tax bill, OR search Google: "${matchedAddress} ${countyName} property tax"`
+  ? `Search Google: "${matchedAddress} Marion County property tax Indiana" OR go to https://www.indy.gov/activity/view-pay-property-taxes`
+  : `Go to https://gateway.ifionline.org/taxBill/ — select county "${countyName.replace(' County','')}" and search by the parcel number found in Search 1. Also try Google: parcel number + "${countyName} property tax Indiana".`
 }
-Extract: most recent annual tax amount, tax year, spring installment, fall installment, any deductions.
+Extract: most recent annual tax bill total, tax year, any deductions (homestead, mortgage, etc.).
 
 ━━━ SEARCH 5: ZONING ━━━
 ${isMarion
-  ? `Search https://www.indy.gov/activity/zoning-and-development or IndyGIS: https://maps.indy.gov/indygis/ for the zoning of "${matchedAddress}"`
-  : `Search Google: "${matchedAddress} ${countyName} Indiana zoning classification"`
+  ? `Search the IndyGIS map at https://maps.indy.gov/indygis/ for "${matchedAddress}" — look for the zoning layer. Also try Google: "${matchedAddress} Indianapolis zoning"`
+  : `Search Google: "${matchedAddress} ${countyName} Indiana zoning classification site:in.gov OR site:${countyName.replace(' County','').toLowerCase()}county.in.gov"`
 }
-Extract: zoning code (e.g. C-4, B-2, I-1), zoning description, overlay districts if any.
+Extract: zoning district code (e.g. C-4, B-2, I-1, MF), full zoning description, any overlay districts.
 
 ━━━ SEARCH 6: TRANSFER/SALES HISTORY ━━━
-On the assessor parcel page, look for "Transfer History", "Sales History", or "Deed History" tab.
-Also search: "${matchedAddress} Indiana sales disclosure form"
-Extract last 3-5 sales: date, price, grantor (seller), grantee (buyer), deed type.
+${isMarion
+  ? `On the assessor.indy.gov parcel page, look for a "Transfer History" tab or "Sales History" section. Also search Google: "${matchedAddress} Indianapolis deed transfer"`
+  : `On Indiana Gateway parcel page, look for "Transfer History" or "Sales" tab. Also search Google: parcel number + "Indiana sales disclosure" OR "${matchedAddress} ${countyName} deed transfer"`
+}
+The Indiana Sales Disclosure database at https://secure.in.gov/apps/dlgf/sdf/ may also have sale records.
+Extract last 3-5 transfers: date of transfer, sale price (from disclosure form), grantor (seller), grantee (buyer), deed type.
 
 ━━━ SEARCH 7: LOOPNET LISTING ━━━
 Search Google: site:loopnet.com "${matchedAddress}"
