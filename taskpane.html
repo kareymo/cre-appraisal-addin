@@ -818,14 +818,21 @@ function renderPublicData() {
 
   // ── API KEY WARNING ──────────────────────────────────────────────────────────
   const noApiKey = !apiKey;
-  const assessorFailed = noApiKey || !a.parcelNumber || NV(a.parcelNumber);
+  // Consider data "found" if ANY meaningful assessor field came back
+  const hasParcel  = !NV(a.parcelNumber) && a.parcelNumber;
+  const hasOwner   = !NV(a.currentOwner) && a.currentOwner;
+  const hasPType   = !NV(a.propertyType) && a.propertyType;
+  const hasBldgSF  = !NV(a.buildingSF) && a.buildingSF;
+  const hasTenantV = !NV(a.tenant) && a.tenant;
+  const anyAssessorData = hasParcel || hasOwner || hasPType || hasBldgSF || hasTenantV;
+
   if (noApiKey) {
     html += `<div class="api-key-banner">
       <strong>⚠ Property lookup did not run — API key missing</strong><br>
       Property records, assessed values, zoning, and listing data were <strong>not retrieved</strong> because no API key is saved.
       <br><a onclick="showTab('settings')">→ Click here to add your API key in Settings</a>, then click Research again.
     </div>`;
-  } else if (assessorFailed) {
+  } else if (!anyAssessorData) {
     html += `<div class="api-key-banner" style="border-left-color:#dc3545;background:#fff5f5;">
       <strong>⚠ Property lookup returned no data</strong><br>
       The research ran but could not retrieve property records for this address. Check the <strong>🔧 Support</strong> tab for details.
@@ -837,7 +844,8 @@ function renderPublicData() {
   function si(cls, icon, label) {
     return `<div class="status-item ${cls}"><span class="si-icon">${icon}</span><span class="si-label">${label}</span></div>`;
   }
-  const hasProperty = !NV(a.parcelNumber) && a.parcelNumber;
+  // Property records: full if parcel found, partial if other fields found, none if nothing
+  const hasProperty = anyAssessorData;
   const hasTax      = !NV(a.annualTaxes) && a.annualTaxes;
   const hasZoning   = !NV(a.zoning) && a.zoning;
   const hasLease    = !NV(a.tenant) && a.tenant;
@@ -850,7 +858,9 @@ function renderPublicData() {
   html += `<div class="status-summary">
     <h6>Research Status</h6>
     <div class="status-grid">
-      ${si(hasProperty?'si-ok':'si-fail', hasProperty?'✅':'❌', hasProperty?'Property Records Found':'Property Records — Verify manually')}
+      ${si(hasParcel?'si-ok':hasProperty?'si-warn':'si-fail',
+           hasParcel?'✅':hasProperty?'⚠':'❌',
+           hasParcel?'Property Records Found':hasProperty?'Property Data Found (no parcel #)':'Property Records — Verify manually')}
       ${si(hasTax?'si-ok':'si-warn', hasTax?'✅':'⚠', hasTax?'Tax Data Found':'Tax Data — Enter in Action Items')}
       ${si(hasFlood?'si-ok':'si-warn', hasFlood?'✅':'⚠', hasFlood?'Flood Zone: '+f.zone:'Flood Zone — Verify manually')}
       ${si(hasZoning?'si-ok':'si-warn', hasZoning?'✅':'⚠', hasZoning?'Zoning: '+a.zoning:'Zoning — Enter in Action Items')}
