@@ -895,17 +895,17 @@ function downloadExcel() {
       // Row 25
       [''],
       // Row 26  — Comp Adjustments header + column labels
-      ['── COMP SALES ADJUSTMENTS ($/SF) ──','Sale 1','Sale 2','Sale 3','Sale 4','Sale 5','Sale 6','Sale 7'],
-      // Rows 27-35
-      ['Property Rights Conveyed','','','','','','',''],
-      ['Financing Terms','','','','','','',''],
-      ['Conditions of Sale','','','','','','',''],
-      ['Market Conditions (Time Adjustment)','','','','','','',''],
-      ['Location','','','','','','',''],
-      ['Building Size','','','','','','',''],
-      ['Age / Condition','','','','','','',''],
-      ['Lease Terms / Occupancy','','','','','','',''],
-      ['Other','','','','','','',''],
+      ['── COMP SALES ADJUSTMENTS ($/SF) — Enter dollar adjustments for each comp. Source: paired sales analysis & CoStar comps.','Sale 1','Sale 2','Sale 3','Sale 4','Sale 5','Sale 6','Sale 7'],
+      // Rows 27-35  (Col A = adjustment name + how to derive it)
+      ['Property Rights Conveyed  |  Fee simple = $0; leased fee = market rent differential','','','','','','',''],
+      ['Financing Terms  |  Cash equivalent = $0; below-market financing = present value of benefit','','','','','','',''],
+      ['Conditions of Sale  |  Arms-length = $0; distressed/related party = market-derived %','','','','','','',''],
+      ['Market Conditions (Time)  |  Market trend $/SF/month × months since sale','','','','','','',''],
+      ['Location  |  Paired sales from same vs. superior/inferior submarkets','','','','','','',''],
+      ['Building Size  |  Regression analysis or paired sales (larger buildings = lower $/SF)','','','','','','',''],
+      ['Age / Condition  |  Paired sales by age bracket and condition rating','','','','','','',''],
+      ['Lease Terms / Occupancy  |  NNN vs. gross; above/below market rent differential','','','','','','',''],
+      ['Other  |  Specify adjustment basis in notes','','','','','','',''],
       // Row 36
       [''],
       // Row 37  — Value Conclusions header
@@ -922,14 +922,14 @@ function downloadExcel() {
       // Row 46
       [''],
       // Row 47-53  — Sales History
-      ['── SALES HISTORY  (auto-fills Sales History sheet) ──','','',''],
-      ['Date','Sale Price','Buyer','Seller'],
+      ['── SALES HISTORY  |  Source: Indiana Gateway → Transfer History tab + DLGF Sales Disclosure (dlgf.in.gov/sdf) ──','','',''],
+      ['Date  (from Transfer History)','Sale Price  (from DLGF Sales Disclosure)','Buyer / Grantee','Seller / Grantor'],
       ['','','',''],['','','',''],['','','',''],['','','',''],['','','',''],
       // Row 54
       [''],
       // Row 55-61  — Tax History
-      ['── TAX HISTORY  (auto-fills Tax History sheet) ──','',''],
-      ['Tax Year','Annual Amount','Notes'],
+      ['── TAX HISTORY  |  Source: Indiana Gateway → Tax Bill tab  OR  county treasurer website ──','',''],
+      ['Tax Year  (March 1 assessment date)','Annual Tax Bill (spring + fall installments)','Notes (deductions, exemptions)'],
       ['','',''],['','',''],['','',''],['','',''],['','',''],
       // Row 62
       [''],
