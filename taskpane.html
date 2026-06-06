@@ -28,6 +28,17 @@
     .hero h1 { font-size: 18px; margin: 0; }
     .hero p { font-size: 12px; margin: 4px 0 0; opacity: 0.8; }
     #downloadBtn { font-size: 13px; font-weight: 600; }
+    /* Notes tab */
+    .note-card { border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; }
+    .note-ok    { background: #d4edda; border-left: 3px solid #28a745; }
+    .note-warn  { background: #fff3cd; border-left: 3px solid #ffc107; }
+    .note-alert { background: #f8d7da; border-left: 3px solid #dc3545; }
+    .note-info  { background: #e8f0fe; border-left: 3px solid #1a3a5c; }
+    .note-card .note-title { font-weight: 700; margin-bottom: 2px; }
+    .note-card .note-body  { color: #444; font-size: 11px; }
+    .note-card a { font-size: 11px; }
+    .notes-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: .5px; margin: 10px 0 4px; }
+    #tab5-link.has-alerts { color: #dc3545 !important; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -44,8 +55,7 @@
 
 <div class="d-flex gap-2 mb-2">
   <input type="text" id="addressInput" class="form-control form-control-sm"
-    placeholder="Enter Indiana property address…"
-    value="8111 S Emerson Ave, Indianapolis, IN 46237"/>
+    placeholder="Enter Indiana property address…"/>
   <button class="btn btn-sm btn-primary px-3" id="btnSearch" onclick="startResearch()">Research</button>
 </div>
 
@@ -60,6 +70,7 @@
   <li class="nav-item"><a class="nav-link" id="tab2-link" href="#" onclick="showTab('step2');return false;">2 CoStar Guide</a></li>
   <li class="nav-item"><a class="nav-link" id="tab3-link" href="#" onclick="showTab('step3');return false;">3 Paste CoStar</a></li>
   <li class="nav-item"><a class="nav-link" id="tab4-link" href="#" onclick="showTab('step4');return false;">4 Report Data</a></li>
+  <li class="nav-item"><a class="nav-link" id="tab5-link" href="#" onclick="showTab('step5');return false;">5 Notes</a></li>
 </ul>
 
 <!-- STEP 1 -->
@@ -99,6 +110,18 @@
 <div id="tab-step4" class="tab-content" style="display:none">
   <div id="reportDataOutput">
     <p class="text-muted text-center mt-4" style="font-size:12px;">Complete Steps 1 and 3, then view combined data here.</p>
+  </div>
+</div>
+
+<!-- STEP 5: NOTES / WATCH LIST -->
+<div id="tab-step5" class="tab-content" style="display:none">
+  <div id="notesOutput">
+    <p class="text-muted text-center mt-4" style="font-size:12px;">Run Research first to generate the watch list.</p>
+  </div>
+  <div class="mt-3">
+    <div class="notes-section-label">📝 Notes for next iteration</div>
+    <textarea id="devNotes" class="form-control" rows="4" style="font-size:11px;"
+      placeholder="Type anything you want to flag here — screenshot this tab and send to dev…"></textarea>
   </div>
 </div>
 
@@ -209,12 +232,12 @@ function saveApiKey() {
 }
 
 function showTab(name) {
-  const tabs = ['step1','step2','step3','step4','settings'];
+  const tabs = ['step1','step2','step3','step4','step5','settings'];
   tabs.forEach(t => {
     document.getElementById('tab-'+t).style.display = t===name ? '' : 'none';
   });
-  const linkMap = {'step1':'tab1-link','step2':'tab2-link','step3':'tab3-link','step4':'tab4-link','settings':null};
-  ['tab1-link','tab2-link','tab3-link','tab4-link'].forEach(id => {
+  const linkMap = {'step1':'tab1-link','step2':'tab2-link','step3':'tab3-link','step4':'tab4-link','step5':'tab5-link','settings':null};
+  ['tab1-link','tab2-link','tab3-link','tab4-link','tab5-link'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });
@@ -287,6 +310,7 @@ async function startResearch() {
     renderPublicData();
     renderCoStarGuide();
     renderReportData();
+    renderNotes();
     document.getElementById('downloadBtn').style.display = '';
     log('✅ Done. Click Download Excel File to save your research.');
   } catch(err) {
@@ -644,20 +668,29 @@ function renderPublicData() {
   html += row('SFHA', f.sfha ? 'YES — Flood insurance required' : 'NO', 'public');
 
   html += sec('👥 Demographics (Census ACS 2023)');
-  if (cs?.pop) {
-    html += row((cs.name||'Township')+' Population', fmt(cs.pop), 'public');
-    html += row((cs.name||'Township')+' Median HH Income', fmt(cs.medHHIncome,'$'), 'public');
+  if (d.censusBlocked) {
+    html += `<div class="manual-flag">⚠ Census API unavailable from this browser/network. Look up demographics manually at <a href="https://data.census.gov" target="_blank">data.census.gov</a> — search for ${escHtml(d.countyName)}.</div>`;
+  } else {
+    if (cs?.pop) {
+      html += row((cs.name||'Township')+' Population', fmt(cs.pop), 'public');
+      html += row((cs.name||'Township')+' Median HH Income', fmt(cs.medHHIncome,'$'), 'public');
+    }
+    html += row(d.countyName+' Population', fmt(co.pop), 'public');
+    html += row(d.countyName+' Median HH Income', fmt(co.medHHIncome,'$'), 'public');
+    html += row('Indiana Median HH Income', fmt(st?.medHHIncome,'$'), 'public');
+    html += row('US Median HH Income', fmt(nat?.medHHIncome,'$'), 'public');
   }
-  html += row(d.countyName+' Population', fmt(co.pop), 'public');
-  html += row(d.countyName+' Median HH Income', fmt(co.medHHIncome,'$'), 'public');
-  html += row('Indiana Median HH Income', fmt(st?.medHHIncome,'$'), 'public');
-  html += row('US Median HH Income', fmt(nat?.medHHIncome,'$'), 'public');
 
   html += sec('📊 Unemployment (BLS LAUS)');
-  if (bls.blsCounty) html += row(d.countyName, pct(bls.blsCounty.value)+' ('+bls.blsCounty.period+')', 'public');
-  if (bls.blsMSA) html += row(d.msaName+' MSA', pct(bls.blsMSA.value)+' ('+bls.blsMSA.period+')', 'public');
-  if (bls.blsState) html += row('Indiana', pct(bls.blsState.value)+' ('+bls.blsState.period+')', 'public');
-  if (bls.blsNational) html += row('United States', pct(bls.blsNational.value)+' ('+bls.blsNational.period+')', 'public');
+  const blsAny = bls.blsCounty||bls.blsMSA||bls.blsState||bls.blsNational;
+  if (!blsAny) {
+    html += `<div class="manual-flag">⚠ BLS API unavailable from this browser/network. Look up unemployment at <a href="https://www.bls.gov/lau/" target="_blank">bls.gov/lau</a> — search for ${escHtml(d.countyName)}.</div>`;
+  } else {
+    if (bls.blsCounty) html += row(d.countyName, pct(bls.blsCounty.value)+' ('+bls.blsCounty.period+')', 'public');
+    if (bls.blsMSA) html += row(d.msaName+' MSA', pct(bls.blsMSA.value)+' ('+bls.blsMSA.period+')', 'public');
+    if (bls.blsState) html += row('Indiana', pct(bls.blsState.value)+' ('+bls.blsState.period+')', 'public');
+    if (bls.blsNational) html += row('United States', pct(bls.blsNational.value)+' ('+bls.blsNational.period+')', 'public');
+  }
 
   html += sec('📈 US Treasury Yield Curve');
   if (t) {
@@ -714,7 +747,13 @@ async function parseCoStarData() {
       const d = await r.json();
       const text = d.content?.[0]?.text||'';
       const match = text.match(/[\[{][\s\S]*[\]}]/);
-      if (match) { costarData[s.key] = JSON.parse(match[0]); log('✅ Parsed '+s.label); }
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        costarData[s.key] = parsed;
+        const arr = Array.isArray(parsed) ? parsed : [parsed];
+        const fields = arr.length ? Object.keys(arr[0]).join(', ') : 'empty';
+        log('✅ Parsed '+s.label+' ('+arr.length+' records) — fields: '+fields);
+      }
     } catch(e) { log('⚠ Could not parse '+s.label); }
   }
   renderReportData();
@@ -914,9 +953,360 @@ function downloadExcel() {
     addSheet(cs.name, rows);
   }
 
+  // ── 0: ACTION ITEMS — dynamic list of every manual field + where to find it
+  {
+    const M = 'MANUAL_LOOKUP_REQUIRED';
+    const items = []; // [category, field, whereToFind, currentValue]
+
+    function chk(cat, field, where, val) {
+      const v = val || '';
+      if (!v || String(v).includes('MANUAL') || String(v).trim() === '') {
+        items.push([cat, field, where, '']);
+      }
+    }
+
+    // Property Details
+    chk('Property Details', 'Current Owner',       'Indiana Gateway or assessor.indy.gov (Marion Co.)', a.currentOwner);
+    chk('Property Details', 'Property Class / Use','Indiana Gateway — parcel detail page',              a.propertyClass||a.currentUse);
+    chk('Property Details', 'Land Area (Acres)',    'Indiana Gateway — parcel detail page',              a.landArea);
+    chk('Property Details', 'Year Built',           'Indiana Gateway — parcel detail page',              a.yearBuilt);
+    chk('Property Details', 'Construction Type',    'Indiana Gateway — Property Record Card link',       a.constructionType);
+    chk('Property Details', 'Exterior Walls',       'Indiana Gateway — Property Record Card link',       a.exteriorWalls);
+    chk('Property Details', 'Roof Type',            'Indiana Gateway — Property Record Card link',       a.roofType);
+    chk('Property Details', 'HVAC',                 'Indiana Gateway — Property Record Card link',       a.hvac);
+    chk('Property Details', 'Condition',            'Site inspection (verify in person)',                a.condition);
+    chk('Property Details', 'Zoning',               'Indianapolis Planning / county zoning map',         a.zoning);
+    chk('Property Details', 'Zoning Description',   'Indianapolis Planning / county zoning map',         a.zoningDescription);
+
+    // Assessed Values
+    chk('Assessed Values', 'Assessed Land Value',   'Indiana Gateway — Assessment Values tab',           a.assessedLandValue);
+    chk('Assessed Values', 'Assessed Improvements', 'Indiana Gateway — Assessment Values tab',           a.assessedImprovementValue);
+    chk('Assessed Values', 'Total Assessed Value',  'Indiana Gateway — Assessment Values tab',           a.assessedTotalValue);
+    chk('Assessed Values', 'Assessment Year',       'Indiana Gateway — Assessment Values tab',           a.assessedValueYear);
+    chk('Assessed Values', 'Annual Taxes',          'Indiana Gateway — Tax Bill tab or county treasurer',a.annualTaxes);
+
+    // Sales & Listing
+    chk('Sales & Listing', 'Last Sale Date',        'Indiana Gateway — Transfer History tab',            a.lastSaleDate);
+    chk('Sales & Listing', 'Last Sale Price',       'Indiana Sales Disclosure Forms (DLGF)',             a.lastSalePrice);
+    chk('Sales & Listing', 'Listing Price',         'LoopNet.com — search the address',                  a.listingPrice);
+    chk('Sales & Listing', 'Listing Broker',        'LoopNet.com — listing detail page',                 a.listingBroker);
+    chk('Sales & Listing', 'Tenant',                'LoopNet.com or direct observation',                 a.tenant);
+    chk('Sales & Listing', 'Lease Expiration',      'LoopNet.com or tenant lease abstract',              a.leaseExpiration);
+    chk('Sales & Listing', 'Annual Rent (NNN)',     'LoopNet.com or tenant lease abstract',              a.annualRent);
+    chk('Sales & Listing', 'Cap Rate',              'LoopNet.com listing or sales analysis',             a.capRate);
+
+    // Demographics
+    if (d.censusBlocked || !d.census?.county?.pop) {
+      items.push(['Demographics', 'County Population',         'data.census.gov — ACS 5-Year, Table B01003', '']);
+      items.push(['Demographics', 'County Median HH Income',   'data.census.gov — ACS 5-Year, Table B19013', '']);
+      items.push(['Demographics', 'County Median Gross Rent',  'data.census.gov — ACS 5-Year, Table B25064', '']);
+      items.push(['Demographics', 'Indiana Median HH Income',  'data.census.gov — ACS 5-Year, Table B19013', '']);
+      items.push(['Demographics', 'US Median HH Income',       'data.census.gov — ACS 5-Year, Table B19013', '']);
+    }
+    if (!d.bls?.blsCounty) {
+      items.push(['Demographics', d.countyName+' Unemployment Rate', 'bls.gov/lau — county unemployment', '']);
+      items.push(['Demographics', 'Indiana Unemployment Rate',       'bls.gov/lau — state unemployment',  '']);
+      items.push(['Demographics', 'US Unemployment Rate',            'bls.gov/lau — national SA rate',    '']);
+    }
+
+    // Market Rates
+    items.push(['Market Rates', '5-Year SOFR Swap Rate',  'cmegroup.com/trading/interest-rates', '']);
+    items.push(['Market Rates', '10-Year SOFR Swap Rate', 'cmegroup.com/trading/interest-rates', '']);
+
+    // CoStar (always manual)
+    if (!costarData.sales)    items.push(['CoStar', 'Comparable Sales',   'CoStar Suite → Comps → Sales', '']);
+    if (!costarData.leases)   items.push(['CoStar', 'Comparable Leases',  'CoStar Suite → Comps → Leases', '']);
+    if (!costarData.market)   items.push(['CoStar', 'Market Analytics',   'CoStar Suite → Analytics', '']);
+    if (!costarData.listings) items.push(['CoStar', 'Active Listings',    'CoStar Suite → Properties → For Sale', '']);
+
+    const actionRows = [
+      ['CRE APPRAISAL — MANUAL LOOKUP REQUIRED', '', '', ''],
+      [`Property: ${d.address||''}`, '', '', `Generated: ${new Date().toLocaleDateString()}`],
+      [''],
+      ['CATEGORY', 'FIELD', 'WHERE TO FIND IT', '✏ ENTER VALUE HERE'],
+      ...items,
+      [''],
+      ['── SALES HISTORY (enter below) ──','','',''],
+      ['Date','Sale Price','Buyer','Seller'],
+      ['','','',''],['','','',''],['','','',''],
+      [''],
+      ['── TAX HISTORY (enter below) ──','',''],
+      ['Tax Year','Annual Amount','Notes'],
+      ['','',''],['','',''],['','',''],['','',''],['','',''],
+    ];
+    const ws0 = XLSX.utils.aoa_to_sheet(actionRows);
+    ws0['!cols'] = [{wch:20},{wch:28},{wch:42},{wch:30}];
+    XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items', true); // insert at front
+  }
+
+  // ── REPORT TABLES ────────────────────────────────────────────────────────────
+  // Comp Sales Adjustment Grid
+  {
+    const compSales = costarData.sales ? (Array.isArray(costarData.sales)?costarData.sales:[costarData.sales]) : [];
+    const numComps = Math.min(compSales.length || 6, 7);
+    const compCols = ['Subject', ...Array.from({length:numComps},(_,i)=>`Sale ${i+1}`)];
+
+    const getSale = (i, field) => {
+      if (!compSales[i]) return '';
+      return resolveField(compSales[i], field) || '';
+    };
+
+    const gridRows = [
+      ['COMPARABLE SALES ADJUSTMENT GRID','','','','','','',''],
+      ['Source: CoStar Suite | USPAP Compliant','','','','','','',''],
+      ['', ...compCols],
+      ['Address',           d.address||'', ...Array.from({length:numComps},(_,i)=>getSale(i,'address'))],
+      ['Sale Date',         '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'sale date')||getSale(i,'sale_date'))],
+      ['Building SF',       a.buildingSF||'', ...Array.from({length:numComps},(_,i)=>getSale(i,'bldg sf')||getSale(i,'building_sf'))],
+      ['Land Area (AC)',    a.landArea||'', ...Array.from({length:numComps},(_,i)=>'')],
+      ['Year Built',        a.yearBuilt||'', ...Array.from({length:numComps},(_,i)=>'')],
+      ['SALE PRICE',        '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'sale price')||getSale(i,'sale_price'))],
+      ['Price Per SF',      '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'price/sf')||getSale(i,'price_per_sf'))],
+      ['Cap Rate at Sale',  '',            ...Array.from({length:numComps},(_,i)=>getSale(i,'cap rate')||getSale(i,'cap_rate'))],
+      [''],
+      ['── ADJUSTMENTS ($/SF) ──'],
+      ['Property Rights',    '',   ...Array(numComps).fill('')],
+      ['Financing Terms',    '',   ...Array(numComps).fill('')],
+      ['Conditions of Sale', '',   ...Array(numComps).fill('')],
+      ['Market Conditions',  '',   ...Array(numComps).fill('')],
+      ['ADJUSTED PRICE/SF',  '',   ...Array(numComps).fill('')],
+      ['Location',           '',   ...Array(numComps).fill('')],
+      ['Building Size',      '',   ...Array(numComps).fill('')],
+      ['Age / Condition',    '',   ...Array(numComps).fill('')],
+      ['Lease Terms',        '',   ...Array(numComps).fill('')],
+      ['Other',              '',   ...Array(numComps).fill('')],
+      ['NET ADJUSTMENT $/SF','',   ...Array(numComps).fill('')],
+      ['NET ADJUSTMENT %',   '',   ...Array(numComps).fill('')],
+      ['GROSS ADJUSTMENT %', '',   ...Array(numComps).fill('')],
+      ['INDICATED VALUE/SF', '',   ...Array(numComps).fill('')],
+      [''],
+      ['VALUE CONCLUSION — SALES COMPARISON',''],
+      ['Range of Adjusted Values ($/SF):', ''],
+      ['Concluded Value Per SF:', ''],
+      ['Building Area (SF):', a.buildingSF||''],
+      ['INDICATED VALUE (Rounded):', ''],
+    ];
+    const wsGrid = XLSX.utils.aoa_to_sheet(gridRows);
+    wsGrid['!cols'] = [{wch:26},{wch:16},...Array(numComps).fill({wch:14})];
+    XLSX.utils.book_append_sheet(wb, wsGrid, 'Report - Comp Sales Grid');
+  }
+
+  // Income Approach / Reconstructed Operating Statement
+  {
+    const leases = costarData.leases ? (Array.isArray(costarData.leases)?costarData.leases:[costarData.leases]) : [];
+    const mktRent = leases.length ? resolveField(leases[0],'rent/sf nnn')||'' : '';
+
+    const incomeRows = [
+      ['INCOME CAPITALIZATION APPROACH','','',''],
+      ['Reconstructed Operating Statement','','',''],
+      [''],
+      ['POTENTIAL GROSS INCOME (PGI)','Annual $','$/SF/Yr','% of PGI'],
+      ['Base Rent — NNN', '', mktRent, ''],
+      ['CAM Reimbursements', '', '', ''],
+      ['Real Estate Tax Reimbursement', '', '', ''],
+      ['Other Income', '', '', ''],
+      ['TOTAL PGI', '', '', ''],
+      [''],
+      ['VACANCY & CREDIT LOSS','Annual $','% of PGI','Notes'],
+      ['Market Vacancy', '', '', 'Market-derived'],
+      ['Credit Loss', '', '', '1-2% typical'],
+      ['TOTAL V&CL', '', '', ''],
+      [''],
+      ['EFFECTIVE GROSS INCOME (EGI)', '', '', ''],
+      [''],
+      ['OPERATING EXPENSES','Annual $','$/SF/Yr','% of EGI'],
+      ['Real Estate Taxes', a.annualTaxes||'', '', ''],
+      ['Insurance', '', '', ''],
+      ['Property Management', '', '', ''],
+      ['Maintenance & Repairs', '', '', ''],
+      ['Reserves for Replacement', '', '', ''],
+      ['Other Expenses', '', '', ''],
+      ['TOTAL OPERATING EXPENSES', '', '', ''],
+      [''],
+      ['NET OPERATING INCOME (NOI)', '', '', ''],
+      [''],
+      ['DIRECT CAPITALIZATION','','',''],
+      ['Net Operating Income (NOI):', '','',''],
+      ['Selected Cap Rate:', '','',''],
+      ['INDICATED VALUE (NOI ÷ Rate):', '','',''],
+      ['VALUE INDICATION (Rounded):', '','',''],
+      [''],
+      ['CAP RATE SUPPORT','Range','Selected','Source'],
+      ['CoStar Market Analytics', costarData.market?(Array.isArray(costarData.market)?costarData.market[0]:costarData.market).avg_cap_rate||'':'', '', 'CoStar'],
+      ['Comparable Sale Implied Rates', '', '', 'Comp Sales Grid'],
+      ['Band of Investment Method', '', '', 'Treasury + equity'],
+      ['SELECTED CAP RATE', '', '', ''],
+    ];
+    const wsIncome = XLSX.utils.aoa_to_sheet(incomeRows);
+    wsIncome['!cols'] = [{wch:34},{wch:14},{wch:12},{wch:20}];
+    XLSX.utils.book_append_sheet(wb, wsIncome, 'Report - Income Approach');
+  }
+
+  // Reconciliation
+  {
+    const reconcRows = [
+      ['RECONCILIATION & FINAL VALUE CONCLUSION','','',''],
+      [''],
+      ['APPROACH INDICATIONS','Value Indication','Value/SF','Weight'],
+      ['Sales Comparison Approach', '', '', ''],
+      ['Income Capitalization Approach', '', '', ''],
+      ['Cost Approach', '', '', '(supporting only)'],
+      [''],
+      ['FINAL VALUE CONCLUSION','','',''],
+      ['Property Address:', d.address||'','',''],
+      ['County:', d.countyName||'','',''],
+      ['Effective Date of Appraisal:', '','',''],
+      ['Interest Appraised:', 'Fee Simple Estate','',''],
+      [''],
+      ['MARKET VALUE AS OF:', '','',''],
+      ['Value Per SF:', '','',''],
+      ['Overall Implied Cap Rate:', '','',''],
+      [''],
+      ['EXPOSURE & MARKETING TIME','','',''],
+      ['Estimated Exposure Time:', '','',''],
+      ['Estimated Marketing Time:', '','',''],
+    ];
+    const wsRecon = XLSX.utils.aoa_to_sheet(reconcRows);
+    wsRecon['!cols'] = [{wch:32},{wch:20},{wch:14},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, wsRecon, 'Report - Reconciliation');
+  }
+
   // ── Download
   const safeName = (d.address||'Property').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_').slice(0,40);
   XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`);
+}
+
+// ── NOTES / WATCH LIST ────────────────────────────────────────────────────────
+function renderNotes() {
+  const d = publicData, a = d.assessor||{}, bls = d.bls||{}, f = d.fema||{};
+  const M = 'MANUAL_LOOKUP_REQUIRED';
+  const isManual = v => !v || String(v).includes(M) || String(v).trim() === '';
+
+  let alerts = 0;
+  let html = `<p style="font-size:11px;color:#555;margin-bottom:8px;">
+    Generated for: <strong>${escHtml(d.address||'—')}</strong> &nbsp;|&nbsp;
+    ${new Date().toLocaleString()}
+    &nbsp;<span style="font-size:10px;color:#888;">(screenshot this tab to share with dev)</span></p>`;
+
+  // ── API STATUS ──────────────────────────────────────────────────────────────
+  html += `<div class="notes-section-label">🔌 API Status</div>`;
+
+  const apis = [
+    { name:'OpenStreetMap Geocoder', ok: !!d.lat,           source:'nominatim.openstreetmap.org' },
+    { name:'Census ACS Demographics', ok: !!d.census?.county?.pop, source:'api.census.gov' },
+    { name:'BLS Unemployment',        ok: !!bls.blsCounty,  source:'api.bls.gov' },
+    { name:'FEMA Flood Zone',         ok: !!f.zone,         source:'hazards.fema.gov' },
+    { name:'US Treasury Rates',       ok: !!d.treasury?.y10,source:'home.treasury.gov / FRED' },
+    { name:'Claude Assessor Lookup',  ok: !!a.parcelNumber && !isManual(a.parcelNumber), source:'Indiana Gateway + LoopNet' },
+  ];
+
+  apis.forEach(api => {
+    const cls = api.ok ? 'note-ok' : 'note-warn';
+    const icon = api.ok ? '✅' : '⚠️';
+    if (!api.ok) alerts++;
+    html += `<div class="note-card ${cls}">
+      <div class="note-title">${icon} ${escHtml(api.name)}</div>
+      <div class="note-body">${api.ok ? 'Data returned successfully' : 'No data returned — may be blocked by network/CORS'} &nbsp;·&nbsp; <em>${escHtml(api.source)}</em></div>
+    </div>`;
+  });
+
+  // ── DATA FLAGS ──────────────────────────────────────────────────────────────
+  html += `<div class="notes-section-label">🚩 Data Flags</div>`;
+
+  let flagCount = 0;
+  function flag(type, title, body) {
+    flagCount++;
+    if (type === 'alert') alerts++;
+    html += `<div class="note-card note-${type}">
+      <div class="note-title">${type==='alert'?'🔴':type==='warn'?'🟡':'🔵'} ${escHtml(title)}</div>
+      <div class="note-body">${escHtml(body)}</div>
+    </div>`;
+  }
+
+  // Flood zone
+  if (f.sfha) flag('alert', 'SFHA Flood Zone — Insurance Required', `Zone ${f.zone||''}${f.subType?' / '+f.subType:''} — property is in a Special Flood Hazard Area. Flood insurance required; disclose in report.`);
+  else if (f.zone && f.zone !== 'X') flag('warn', 'Non-standard Flood Zone', `Zone ${f.zone} — verify flood insurance requirements.`);
+
+  // Assessed vs listing
+  if (a.assessedTotalValue && a.listingPrice && !isManual(a.assessedTotalValue) && !isManual(a.listingPrice)) {
+    const av = parseFloat(String(a.assessedTotalValue).replace(/[^0-9.]/g,''));
+    const lp = parseFloat(String(a.listingPrice).replace(/[^0-9.]/g,''));
+    if (av && lp) {
+      const ratio = lp / av;
+      if (ratio > 3) flag('warn', 'Listing Price >> Assessed Value', `List price ($${lp.toLocaleString()}) is ${ratio.toFixed(1)}x the assessed value ($${av.toLocaleString()}). Verify assessment is current.`);
+      else if (ratio < 0.7) flag('warn', 'Listing Price << Assessed Value', `List price ($${lp.toLocaleString()}) is below assessed value ($${av.toLocaleString()}). Possible distressed sale — verify.`);
+    }
+  }
+
+  // Short lease term
+  if (a.leaseExpiration && !isManual(a.leaseExpiration)) {
+    const expStr = a.leaseExpiration;
+    const expDate = new Date(expStr);
+    const monthsLeft = (expDate - new Date()) / (1000*60*60*24*30);
+    if (!isNaN(monthsLeft) && monthsLeft < 24) flag('alert', 'Short Remaining Lease Term', `Lease expires ${expStr} (~${Math.round(monthsLeft)} months). Significant impact on income approach and value. Verify renewal options.`);
+    else if (!isNaN(monthsLeft) && monthsLeft < 60) flag('warn', 'Moderate Remaining Lease Term', `Lease expires ${expStr} (~${Math.round(monthsLeft)} months). Note lease term in Income Approach cap rate selection.`);
+  }
+
+  // Missing key assessor fields
+  const missingAssessor = ['assessedLandValue','assessedTotalValue','annualTaxes','currentOwner'].filter(k => isManual(a[k]));
+  if (missingAssessor.length) flag('warn', 'Assessor Fields Incomplete', `${missingAssessor.length} assessor field(s) need manual entry: ${missingAssessor.join(', ')}. Look up at gateway.ifionline.org.`);
+
+  if (!flagCount) html += `<div class="note-card note-ok"><div class="note-title">✅ No flags</div><div class="note-body">No data anomalies detected.</div></div>`;
+
+  // ── MANUAL LOOKUP CHECKLIST ─────────────────────────────────────────────────
+  html += `<div class="notes-section-label">📋 Manual Lookup Required</div>`;
+
+  const manualFields = [
+    [a.currentOwner,            'Current Owner',          'gateway.ifionline.org'],
+    [a.propertyClass,           'Property Class/Use',     'gateway.ifionline.org'],
+    [a.landArea,                'Land Area',              'gateway.ifionline.org'],
+    [a.yearBuilt,               'Year Built',             'gateway.ifionline.org'],
+    [a.constructionType,        'Construction Type',      'Indiana Gateway — Property Record Card'],
+    [a.condition,               'Condition',              'Site inspection'],
+    [a.assessedLandValue,       'Assessed Land Value',    'gateway.ifionline.org — Values tab'],
+    [a.assessedImprovementValue,'Assessed Improvements',  'gateway.ifionline.org — Values tab'],
+    [a.assessedTotalValue,      'Total Assessed Value',   'gateway.ifionline.org — Values tab'],
+    [a.annualTaxes,             'Annual Taxes',           'gateway.ifionline.org — Tax Bill tab'],
+    [a.lastSaleDate,            'Last Sale Date',         'gateway.ifionline.org — Transfer History'],
+    [a.lastSalePrice,           'Last Sale Price',        'Indiana DLGF Sales Disclosure Forms'],
+    [a.zoning,                  'Zoning',                 'Indianapolis Planning Dept / county zoning'],
+    [a.tenant,                  'Tenant',                 'LoopNet.com or site observation'],
+    [a.leaseExpiration,         'Lease Expiration',       'LoopNet.com or tenant lease'],
+    [a.annualRent,              'Annual Rent',            'LoopNet.com or tenant lease'],
+    [d.census?.county?.pop,     'Census Demographics',    'data.census.gov — search county'],
+    [bls.blsCounty,             'Unemployment Rates',     'bls.gov/lau — county search'],
+  ];
+
+  const missing = manualFields.filter(([val]) => isManual(val));
+  if (missing.length === 0) {
+    html += `<div class="note-card note-ok"><div class="note-title">✅ All key fields populated</div><div class="note-body">No manual lookups needed for the fields above.</div></div>`;
+  } else {
+    missing.forEach(([, field, where]) => {
+      html += `<div class="note-card note-info">
+        <div class="note-title">📌 ${escHtml(field)}</div>
+        <div class="note-body">Source: ${escHtml(where)}</div>
+      </div>`;
+    });
+  }
+
+  // Always-manual
+  html += `<div class="notes-section-label">🔒 Always Manual (no free API)</div>`;
+  html += `<div class="note-card note-info"><div class="note-title">📌 5-Year & 10-Year SOFR Swap Rates</div><div class="note-body">Source: <a href="https://www.cmegroup.com/trading/interest-rates/" target="_blank">cmegroup.com/trading/interest-rates</a></div></div>`;
+  if (!costarData.sales)    html += `<div class="note-card note-info"><div class="note-title">📌 Comparable Sales</div><div class="note-body">Source: CoStar Suite → Comps → Sales</div></div>`;
+  if (!costarData.leases)   html += `<div class="note-card note-info"><div class="note-title">📌 Comparable Leases</div><div class="note-body">Source: CoStar Suite → Comps → Leases</div></div>`;
+  if (!costarData.market)   html += `<div class="note-card note-info"><div class="note-title">📌 Market Analytics</div><div class="note-body">Source: CoStar Suite → Analytics</div></div>`;
+
+  // Update tab label if there are alerts
+  const tab5 = document.getElementById('tab5-link');
+  if (alerts > 0) {
+    tab5.textContent = `5 Notes ⚠${alerts}`;
+    tab5.classList.add('has-alerts');
+  } else {
+    tab5.textContent = '5 Notes ✓';
+    tab5.classList.remove('has-alerts');
+  }
+
+  document.getElementById('notesOutput').innerHTML = html;
 }
 
 </script>
