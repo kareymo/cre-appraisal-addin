@@ -1003,31 +1003,22 @@ function downloadExcel() {
     chk('Demographics','Indiana Unemployment %',  'bls.gov/lau — Indiana statewide rate',               'https://www.bls.gov/lau/', bls.blsState?.value);
     chk('Demographics','US Unemployment %',       'bls.gov/lau — National unemployment rate',           'https://www.bls.gov/lau/', bls.blsNational?.value);
 
-    // Rows 1-62 are the fixed section. Section B starts at row 63.
-    // Row 63 = section header, Row 64 = col headers, Row 65 = first missing item
-    const SECTION_B_DATA_START = 65; // Excel row of first missing item
-
     if (missing.length > 0) {
       aiRows.push(['── MISSING DATA — click the link in column C to open the source ──','','','']);
       aiRows.push(['Sheet','Field','🔗 Click to Open Source (then search as noted)','✏ Enter Value Here']);
-      missing.forEach(([sheet, field, linkText]) => aiRows.push([sheet, field, linkText, '']));
+      // Use Excel HYPERLINK formula for cells with URLs so they are always clickable
+      missing.forEach(([sheet, field, linkText, url]) => {
+        const cellC = url
+          ? { f: `HYPERLINK("${url}","${linkText.replace(/"/g,"'")}")` }
+          : linkText;
+        aiRows.push([sheet, field, cellC, '']);
+      });
     } else {
       aiRows.push(['✅ All data fields auto-populated — no missing data lookups needed!','','','']);
     }
 
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
     ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
-
-    // Add hyperlinks to column C for each missing item
-    missing.forEach(([, , , url], idx) => {
-      if (!url) return;
-      const excelRow = SECTION_B_DATA_START + idx;
-      const cellRef = `C${excelRow}`;
-      if (ws0[cellRef]) {
-        ws0[cellRef].l = { Target: url };
-      }
-    });
-
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
   }
 
