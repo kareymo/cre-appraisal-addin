@@ -1523,8 +1523,7 @@ function downloadExcel() {
   }
 
   // ── REPORT TABLES ────────────────────────────────────────────────────────────
-  const ps = n => ({f:`'Property Summary'!B${n}`});
-  const mr = n => ({f:`'Market Rates'!B${n}`});
+  // (ps and mr already defined above)
   // ps row map: B3=ResearchDate,B4=Address,B5=County,B6=MSA,B9=Parcel,B10=Owner,
   //   B18=BldgSF,B20=LandAcres,B22=YearBuilt,B28=Condition,
   //   B44=AssessedLand,B46=TotalAV,B49=AnnualTaxes,B54=FloodZone,B55=SFHA,
