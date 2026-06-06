@@ -51,29 +51,89 @@
     #tab5-link.has-alerts { color: #dc3545 !important; font-weight: 700; }
     .nv  { color: #856404; font-style: italic; font-size: 11px; }
     .ci  { color: #004085; font-style: italic; font-size: 11px; }
+    /* Workflow banner */
+    .workflow-banner { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:4px; background:#f0f4ff; border:1px solid #c5d0e8; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:11px; }
+    .wf-step { padding:3px 10px; border-radius:12px; color:#666; font-weight:500; white-space:nowrap; }
+    .wf-step.active { background:#1a3a5c; color:white; font-weight:700; }
+    .wf-step.done   { background:#d4edda; color:#155724; }
+    .wf-sep { color:#aaa; font-size:12px; }
+    /* Help panel */
+    .help-panel { background:#fff; border:1px solid #c5d0e8; border-radius:6px; padding:12px 14px; margin-bottom:10px; font-size:12px; }
+    .help-panel ol { margin:6px 0 0; padding-left:18px; line-height:1.8; }
+    /* Property type bar */
+    .prop-type-bar.needs-selection .prop-type-label { color:#856404; font-weight:700; }
+    .prop-type-bar.auto-detected  .prop-type-label { color:#155724; font-weight:700; }
+    /* Tab 5 diagnostics style */
+    #tab5-link { color:#888 !important; font-size:10px !important; }
+    #tab5-link.has-alerts { color:#dc3545 !important; font-weight:700 !important; }
+    .diag-note { font-size:10px; color:#888; background:#f8f9fa; border:1px dashed #ccc; border-radius:4px; padding:4px 8px; margin-bottom:6px; }
   </style>
 </head>
 <body>
 
+<!-- Header -->
 <div class="hero">
   <div class="d-flex align-items-center justify-content-between">
     <div>
       <h1>CRE Appraisal Research</h1>
-      <p>Indiana commercial real estate — Census · BLS · FEMA · INDOT · Treasury · Indiana Gateway</p>
+      <p>Indiana commercial real estate research assistant</p>
     </div>
-    <button class="btn btn-sm btn-outline-light" onclick="showTab('settings')">⚙ Settings</button>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-light" onclick="toggleHelp()">? Help</button>
+      <button class="btn btn-sm btn-outline-light" onclick="showTab('settings')">⚙ Settings</button>
+    </div>
   </div>
 </div>
+
+<!-- Workflow banner — always visible -->
+<div class="workflow-banner">
+  <span class="wf-step active" id="wf1">① Enter Address</span>
+  <span class="wf-sep">›</span>
+  <span class="wf-step" id="wf2">② Research</span>
+  <span class="wf-sep">›</span>
+  <span class="wf-step" id="wf3">③ Add CoStar Data</span>
+  <span class="wf-sep">›</span>
+  <span class="wf-step" id="wf4">④ Download Workbook</span>
+  <span class="wf-sep">›</span>
+  <span class="wf-step" id="wf5">⑤ Complete Action Items</span>
+</div>
+
+<!-- First-use help panel -->
+<div id="helpPanel" class="help-panel" style="display:none">
+  <div class="d-flex justify-content-between align-items-start mb-1">
+    <strong>How This Tool Works</strong>
+    <button class="btn-close btn-sm" onclick="dismissHelp()"></button>
+  </div>
+  <ol style="margin:0;padding-left:18px;line-height:1.9;">
+    <li>Type the property address and click <strong>Research</strong></li>
+    <li>The tool automatically gathers public data — review results in the <strong>Property Research</strong> tab</li>
+    <li>Verify or select the property type if prompted</li>
+    <li>Open CoStar, pull the data listed in <strong>What to Pull from CoStar</strong>, and paste it in <strong>Paste CoStar Data</strong></li>
+    <li>Click <strong>Download Workbook</strong> — your Excel file downloads automatically</li>
+    <li>Open the workbook and fill in the <strong>Action Items</strong> tab — those fields flow through to the report sheets</li>
+  </ol>
+</div>
+
+<!-- Address input -->
 <div class="d-flex gap-2 mb-2">
-  <input type="text" id="addressInput" class="form-control form-control-sm" placeholder="Enter Indiana property address…"/>
+  <input type="text" id="addressInput" class="form-control form-control-sm"
+    placeholder="Enter Indiana property address — e.g. 123 Main St, Indianapolis, IN 46201"/>
   <button class="btn btn-sm btn-primary px-3" id="btnSearch" onclick="startResearch()">Research</button>
 </div>
-<div id="countyBadge" class="mb-2" style="display:none"><span class="county-badge" id="countyBadgeText"></span></div>
+
+<!-- County/MSA badge -->
+<div id="countyBadge" class="mb-2" style="display:none">
+  <span class="county-badge" id="countyBadgeText"></span>
+</div>
+
+<!-- Status log — plain English, not technical -->
 <div id="statusLog" class="status-log mb-2" style="display:none"></div>
+
+<!-- Property type bar -->
 <div id="propTypeBar" class="prop-type-bar needs-selection mb-2" style="display:none">
-  <span style="font-size:12px;font-weight:600;white-space:nowrap;">Property Type:</span>
-  <select id="propertyTypeSelect" class="form-select form-select-sm" onchange="onPropertyTypeChange()" style="max-width:230px;font-size:12px;">
-    <option value="">⚠ Select Property Type</option>
+  <span class="prop-type-label" style="font-size:12px;white-space:nowrap;">Property Type:</span>
+  <select id="propertyTypeSelect" class="form-select form-select-sm" onchange="onPropertyTypeChange()" style="max-width:220px;font-size:12px;">
+    <option value="">Select Property Type</option>
     <option value="Industrial">Industrial</option>
     <option value="Retail">Retail</option>
     <option value="Office">Office</option>
@@ -82,15 +142,21 @@
     <option value="Mixed-Use">Mixed-Use</option>
     <option value="Unknown">Unknown / Needs Review</option>
   </select>
-  <span id="propTypeNote" style="font-size:11px;color:#856404;">← Select to populate type-specific fields</span>
+  <span id="propTypeNote" style="font-size:11px;"></span>
 </div>
-<button id="downloadBtn" class="btn btn-success w-100 mb-2" onclick="downloadExcel()" disabled>⬇ Download Excel File</button>
-<ul class="nav nav-tabs nav-fill mb-0" style="font-size:11px;">
-  <li class="nav-item"><a class="nav-link active" id="tab1-link" href="#" onclick="showTab('step1');return false;">1 Public Data</a></li>
-  <li class="nav-item"><a class="nav-link" id="tab2-link" href="#" onclick="showTab('step2');return false;">2 CoStar Guide</a></li>
-  <li class="nav-item"><a class="nav-link" id="tab3-link" href="#" onclick="showTab('step3');return false;">3 Paste CoStar</a></li>
-  <li class="nav-item"><a class="nav-link" id="tab4-link" href="#" onclick="showTab('step4');return false;">4 Report Data</a></li>
-  <li class="nav-item"><a class="nav-link" id="tab5-link" href="#" onclick="showTab('step5');return false;">5 Notes</a></li>
+
+<!-- Download button -->
+<button id="downloadBtn" class="btn btn-success w-100 mb-2" onclick="downloadExcel()" disabled>
+  ⬇ Download Workbook
+</button>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs nav-fill mb-0">
+  <li class="nav-item"><a class="nav-link active" id="tab1-link" href="#" onclick="showTab('step1');return false;">Property Research</a></li>
+  <li class="nav-item"><a class="nav-link" id="tab2-link" href="#" onclick="showTab('step2');return false;">What to Pull from CoStar</a></li>
+  <li class="nav-item"><a class="nav-link" id="tab3-link" href="#" onclick="showTab('step3');return false;">Paste CoStar Data</a></li>
+  <li class="nav-item"><a class="nav-link" id="tab4-link" href="#" onclick="showTab('step4');return false;">Notes</a></li>
+  <li class="nav-item"><a class="nav-link" id="tab5-link" href="#" onclick="showTab('step5');return false;" title="Dev / diagnostics — not part of appraiser workflow">🔧 Support</a></li>
 </ul>
 <div id="tab-step1" class="tab-content">
   <div id="publicDataOutput"><p class="text-muted text-center mt-4" style="font-size:12px;">Enter an Indiana address above and click <strong>Research</strong>.</p></div>
@@ -116,27 +182,40 @@
   </div>
   <button class="btn btn-primary btn-sm w-100" onclick="parseCoStarData()">Parse CoStar Data</button>
 </div>
+<!-- Tab 4: Notes -->
 <div id="tab-step4" class="tab-content" style="display:none">
-  <div id="reportDataOutput"><p class="text-muted text-center mt-4" style="font-size:12px;">Complete Steps 1 and 3, then view combined data here.</p></div>
+  <p style="font-size:12px;color:#555;margin-bottom:8px;">Use this space for notes about this assignment — anything you want to remember or flag.</p>
+  <textarea id="appraisalNotes" class="form-control" rows="8" style="font-size:12px;"
+    placeholder="Assignment notes, observations, special conditions, follow-up items…"></textarea>
+  <div id="reportDataOutput" class="mt-3"></div>
 </div>
+
+<!-- Tab 5: Developer / Diagnostics — NOT part of appraiser workflow -->
 <div id="tab-step5" class="tab-content" style="display:none">
-  <div id="notesOutput"><p class="text-muted text-center mt-4" style="font-size:12px;">Run Research first to generate the watch list.</p></div>
+  <div class="diag-note">🔧 <strong>Support & Diagnostics</strong> — This tab is for troubleshooting and development use only. Screenshot and send to your developer if something isn't working correctly.</div>
+  <div id="notesOutput"><p class="text-muted text-center mt-4" style="font-size:12px;">Run Research first to populate diagnostics.</p></div>
   <div class="mt-3">
-    <div class="notes-section-label">📝 Notes for next iteration</div>
-    <textarea id="devNotes" class="form-control" rows="4" style="font-size:11px;" placeholder="Type anything to flag — screenshot this tab and send to dev…"></textarea>
+    <div class="notes-section-label">📝 Notes for developer</div>
+    <textarea id="devNotes" class="form-control" rows="3" style="font-size:11px;"
+      placeholder="Describe what's wrong — screenshot this tab and send to developer…"></textarea>
   </div>
 </div>
+
+<!-- Settings -->
 <div id="tab-settings" class="tab-content" style="display:none">
   <div class="section-header">Anthropic API Key</div>
-  <p style="font-size:11px;color:#555;">Required for assessor lookup (~$0.03-0.05/property). Get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.</p>
+  <p style="font-size:11px;color:#555;">Required for property data lookup (~$0.03–0.05 per property). Get yours at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> — add $10 credit, lasts 200+ appraisals.</p>
   <input type="password" id="apiKeyInput" class="form-control form-control-sm mb-2" placeholder="sk-ant-…"/>
   <button class="btn btn-sm btn-success w-100" onclick="saveApiKey()">Save Key</button>
-  <div id="apiKeySavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ Saved</div>
-  <div class="section-header mt-3">Workflow</div>
-  <p style="font-size:11px;color:#555;line-height:1.6;">
-    1. Enter address → Research<br>2. Verify/select detected property type<br>
-    3. Follow CoStar checklist (Tab 2), paste in Tab 3<br>
-    4. Download Excel → fill "0 - Action Items" tab<br>5. Tab 5 shows data quality and type-specific items to verify</p>
+  <div id="apiKeySavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ Key saved</div>
+  <div class="section-header mt-3">Quick Reference</div>
+  <p style="font-size:11px;color:#555;line-height:1.9;">
+    <strong>① Enter address</strong> → click Research<br>
+    <strong>② Review results</strong> in the Property Research tab<br>
+    <strong>③ Open CoStar</strong> → pull the listed data → paste it in the Paste CoStar Data tab<br>
+    <strong>④ Download Workbook</strong><br>
+    <strong>⑤ Open Excel</strong> → complete the <strong>Action Items</strong> tab
+  </p>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -220,7 +299,31 @@ let apiKey = '';
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('cre_api_key');
   if (saved) { apiKey = saved; document.getElementById('apiKeyInput').value = saved; }
+  // Show help panel on first visit
+  if (!localStorage.getItem('cre_help_dismissed')) {
+    document.getElementById('helpPanel').style.display = '';
+  }
 });
+
+function toggleHelp() {
+  const p = document.getElementById('helpPanel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+function dismissHelp() {
+  document.getElementById('helpPanel').style.display = 'none';
+  localStorage.setItem('cre_help_dismissed','1');
+}
+
+// Workflow step highlighter
+function setWorkflowStep(n) {
+  for (let i=1;i<=5;i++) {
+    const el = document.getElementById('wf'+i);
+    if (!el) continue;
+    el.classList.remove('active','done');
+    if (i < n) el.classList.add('done');
+    else if (i === n) el.classList.add('active');
+  }
+}
 
 function saveApiKey() {
   apiKey = document.getElementById('apiKeyInput').value.trim();
@@ -273,27 +376,37 @@ function detectPropertyType(assessorData) {
 }
 
 function updatePropertyTypeUI(detected, manual) {
-  const bar   = document.getElementById('propTypeBar');
-  const sel   = document.getElementById('propertyTypeSelect');
-  const note  = document.getElementById('propTypeNote');
+  const bar  = document.getElementById('propTypeBar');
+  const sel  = document.getElementById('propertyTypeSelect');
+  const note = document.getElementById('propTypeNote');
   bar.style.display = '';
 
   const type = manual || detected?.type || '';
   if (type && type !== 'Unknown') {
     sel.value = type;
     bar.className = 'prop-type-bar auto-detected mb-2';
-    note.style.color = '#155724';
-    note.textContent = manual ? '✏ Manually selected' : '✅ Auto-detected from assessor data';
+    note.innerHTML = manual
+      ? `<span style="color:#155724;">✏ You selected this · <em style="color:#555;font-size:10px;">Controls which property-specific fields appear</em></span>`
+      : `<span style="color:#155724;">✅ Auto-detected · <em style="color:#555;font-size:10px;">Controls which property-specific fields appear — change if incorrect</em></span>`;
   } else {
     sel.value = '';
     bar.className = 'prop-type-bar needs-selection mb-2';
-    note.style.color = '#856404';
-    note.textContent = '← Select to populate type-specific fields';
+    note.innerHTML = `<span style="color:#856404;font-weight:600;">Please select property type above</span> <em style="color:#555;font-size:10px;">— controls which fields and checklist items appear</em>`;
   }
 
   // Show/hide rent roll for multi-tenant types
   const multiTenant = ['Retail','Office','Industrial','Multifamily','Mixed-Use'].includes(type);
-  document.getElementById('rentRollSection').style.display = multiTenant ? '' : 'none';
+  const rrSection = document.getElementById('rentRollSection');
+  if (rrSection) {
+    rrSection.style.display = multiTenant ? '' : 'none';
+    if (multiTenant && !rrSection._msgAdded) {
+      rrSection._msgAdded = true;
+      const msg = document.createElement('p');
+      msg.style.cssText = 'font-size:11px;color:#6a1b9a;margin-bottom:4px;';
+      msg.textContent = 'Multi-tenant property — paste the full tenant rent roll here if available.';
+      rrSection.prepend(msg);
+    }
+  }
 }
 
 function onPropertyTypeChange() {
@@ -322,15 +435,16 @@ async function startResearch() {
 
   const btn = document.getElementById('btnSearch');
   const dlBtn = document.getElementById('downloadBtn');
-  btn.disabled = true; btn.textContent = 'Working…';
+  btn.disabled = true; btn.textContent = 'Researching…';
   dlBtn.disabled = true;
+  setWorkflowStep(2);
   document.getElementById('propTypeBar').style.display = 'none';
   document.getElementById('publicDataOutput').innerHTML =
-    '<p class="text-muted text-center mt-3"><span class="spinner-border spinner-border-sm"></span> Gathering data…</p>';
+    '<p class="text-muted text-center mt-3"><span class="spinner-border spinner-border-sm"></span> Looking up property data…</p>';
   document.getElementById('countyBadge').style.display = 'none';
 
   try {
-    log('📍 Geocoding address…');
+    log('Looking up address…');
     geoResult = await geocodeAddress(address);
     if (!geoResult) throw new Error('Address not found. Please check the address and try again.');
 
@@ -345,9 +459,9 @@ async function startResearch() {
     document.getElementById('countyBadgeText').textContent =
       countyName + (msaInfo ? ' · ' + msaInfo.name : ' · Non-Metropolitan');
     document.getElementById('countyBadge').style.display = '';
-    log('✅ ' + matchedAddress);
+    log('Found: ' + matchedAddress);
+    log('Gathering market and property data…');
 
-    log('⚡ Fetching data from public sources…');
     const [censusR, blsR, treasuryR, femaR, assessorR] = await Promise.allSettled([
       fetchCensusACS(countyFips, cousub),
       fetchBLS(countyFips, msaInfo),
@@ -356,16 +470,13 @@ async function startResearch() {
       fetchAssessorData(address, matchedAddress, countyFips, countyName)
     ]);
 
-    if (censusR.status==='fulfilled') { Object.assign(publicData, censusR.value); log('✅ Census ACS'); }
-    else log('⚠️ Census: '+censusR.reason);
-    if (blsR.status==='fulfilled') { Object.assign(publicData, blsR.value); log('✅ BLS Unemployment'); }
-    else log('⚠️ BLS: '+blsR.reason);
-    if (treasuryR.status==='fulfilled') { Object.assign(publicData, treasuryR.value); log('✅ Treasury Rates'); }
-    else log('⚠️ Treasury: '+treasuryR.reason);
-    if (femaR.status==='fulfilled') { Object.assign(publicData, femaR.value); log('✅ FEMA Flood Zone'); }
-    else log('⚠️ FEMA: '+femaR.reason);
-    if (assessorR.status==='fulfilled') { Object.assign(publicData, assessorR.value); log('✅ Assessor/Property Data'); }
-    else log('⚠️ Assessor: '+assessorR.reason);
+    if (censusR.status==='fulfilled') { Object.assign(publicData, censusR.value); }
+    if (blsR.status==='fulfilled')    { Object.assign(publicData, blsR.value); }
+    if (treasuryR.status==='fulfilled'){ Object.assign(publicData, treasuryR.value); }
+    if (femaR.status==='fulfilled')   { Object.assign(publicData, femaR.value); }
+    if (assessorR.status==='fulfilled'){ Object.assign(publicData, assessorR.value);
+      log('Property records retrieved.'); }
+    else { log('Note: Some property data could not be retrieved automatically — see Action Items for sources.'); }
 
     // Detect property type and run INDOT if retail
     const a = publicData.assessor || {};
@@ -374,7 +485,7 @@ async function startResearch() {
     publicData.propertyTypeDetected = detected;
 
     if (detected.type === 'Retail' || detected.type === 'Mixed-Use') {
-      log('🚦 Fetching INDOT traffic counts…');
+      log('Looking up traffic count data…');
       const indotR = await fetchINDOT(lat, lon).catch(() => null);
       if (indotR) Object.assign(publicData, indotR);
     }
@@ -384,13 +495,15 @@ async function startResearch() {
     renderCoStarGuide();
     renderReportData();
     renderNotes();
+    setWorkflowStep(3);
 
     dlBtn.disabled = false;
-    log('✅ Done. Select property type above if needed, then click Download Excel File.');
+    log('✅ Research complete — review results, then add CoStar data or click Download Workbook.');
   } catch(err) {
-    log('❌ '+err.message);
+    log('Error: ' + err.message);
     document.getElementById('publicDataOutput').innerHTML =
       `<div class="error-msg">❌ ${escHtml(err.message)}</div>`;
+    setWorkflowStep(1);
   } finally {
     btn.disabled = false; btn.textContent = 'Research';
   }
@@ -493,18 +606,18 @@ async function fetchFEMA(lat, lon) {
   try {
     const r = await fetch(url);
     const d = await r.json();
-    if (!d.features?.length) return {fema:{zone:'X',sfha:false,note:'Minimal flood hazard',firmPanel:'Needs Verification',firmDate:'Needs Verification'}};
+    if (!d.features?.length) return {fema:{zone:'X',sfha:false,note:'Minimal flood hazard',firmPanel:'Verify Before Report',firmDate:'Verify Before Report'}};
     const a = d.features[0].attributes;
     return {fema:{
       zone:     a.FLD_ZONE||'X',
       subType:  a.ZONE_SUBTY||'',
       sfha:     a.SFHA_TF==='T',
       studyType:a.STUDY_TYP||'',
-      firmPanel:a.FIRM_PAN||'Needs Verification',
-      firmDate: a.EFF_DATE ? new Date(a.EFF_DATE).toLocaleDateString() : 'Needs Verification'
+      firmPanel:a.FIRM_PAN||'Verify Before Report',
+      firmDate: a.EFF_DATE ? new Date(a.EFF_DATE).toLocaleDateString() : 'Verify Before Report'
     }};
   } catch(e) {
-    return {fema:{zone:'Needs Verification',sfha:false,firmPanel:'Needs Verification',firmDate:'Needs Verification'}};
+    return {fema:{zone:'Verify Before Report',sfha:false,firmPanel:'Verify Before Report',firmDate:'Verify Before Report'}};
   }
 }
 
@@ -517,7 +630,7 @@ async function fetchINDOT(lat, lon) {
     if (d.features?.length > 0) {
       const f = d.features[0].attributes;
       return {indot:{
-        aadt:     f.AADT || f.aadt || 'Needs Verification',
+        aadt:     f.AADT || f.aadt || 'Verify Before Report',
         year:     f.AADT_YEAR || f.aadt_year || '',
         roadName: f.ROAD_NAME || f.road_name || '',
         status:   'found',
@@ -616,7 +729,7 @@ Search Google for the parcel number found in Search 1. Look for additional publi
   "taxHistory":[],
   "notes":""
 }
-Rules: Use "Needs Verification" if searched but couldn't confirm. Use "CoStar Input Needed" for type-specific physical data not publicly indexed. Use "Not Available from Public Data" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}].`;
+Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}].`;
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -642,7 +755,7 @@ Rules: Use "Needs Verification" if searched but couldn't confirm. Use "CoStar In
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmt(n,pre='',suf='') { return (n&&!isNaN(String(n).replace(/[$,]/g,'')))? pre+Number(String(n).replace(/[$,]/g,'')).toLocaleString()+suf : null; }
 function pct(n) { return (n&&!isNaN(n))? Number(n).toFixed(1)+'%' : null; }
-const NV = v => !v || String(v).includes('Needs Verif') || String(v).includes('CoStar Input') || String(v).includes('Not Available') || String(v).includes('Manual Verif') || String(v).includes('Needs Research') || String(v).includes('MANUAL_LOOKUP');
+const NV = v => !v || String(v).includes('Verify Before') || String(v).includes('Verify Using') || String(v).includes('Pull From CoStar') || String(v).includes('Not Available') || String(v).includes('Needs Research') || String(v).includes('MANUAL_LOOKUP') || String(v).includes('Needs Verif') || String(v).includes('CoStar Input') || String(v).includes('Manual Verif');
 
 function row(label, value, badge) {
   if (!value || value==='null' || value==='undefined') return '';
@@ -706,45 +819,45 @@ function renderPublicData() {
   if (ptype === 'Industrial') {
     html += sec('🏭 Industrial Characteristics', 'industrial');
     const ind = a.industrial||{};
-    html += row('Clear Height', ind.clearHeight||'CoStar Input Needed', 'public');
-    html += row('Dock-High Doors', ind.dockHighDoors||'CoStar Input Needed', 'public');
-    html += row('Drive-In Doors', ind.driveInDoors||'CoStar Input Needed', 'public');
-    html += row('Column Spacing', ind.columnSpacing||'CoStar Input Needed', 'public');
-    html += row('Bay Spacing', ind.baySpacing||'CoStar Input Needed', 'public');
-    html += row('Office %', ind.officePct||'CoStar Input Needed', 'public');
-    html += row('Warehouse %', ind.warehousePct||'CoStar Input Needed', 'public');
-    html += row('Sprinkler Type', ind.sprinklerType||'CoStar Input Needed', 'public');
-    html += row('Rail Access', ind.railAccess||'Needs Verification', 'public');
-    html += row('Power Capacity', ind.powerCapacity||'Needs Verification', 'public');
-    html += row('Crane Capacity', ind.craneCap||'Needs Verification', 'public');
+    html += row('Clear Height', ind.clearHeight||'Pull From CoStar', 'public');
+    html += row('Dock-High Doors', ind.dockHighDoors||'Pull From CoStar', 'public');
+    html += row('Drive-In Doors', ind.driveInDoors||'Pull From CoStar', 'public');
+    html += row('Column Spacing', ind.columnSpacing||'Pull From CoStar', 'public');
+    html += row('Bay Spacing', ind.baySpacing||'Pull From CoStar', 'public');
+    html += row('Office %', ind.officePct||'Pull From CoStar', 'public');
+    html += row('Warehouse %', ind.warehousePct||'Pull From CoStar', 'public');
+    html += row('Sprinkler Type', ind.sprinklerType||'Pull From CoStar', 'public');
+    html += row('Rail Access', ind.railAccess||'Verify Before Report', 'public');
+    html += row('Power Capacity', ind.powerCapacity||'Verify Before Report', 'public');
+    html += row('Crane Capacity', ind.craneCap||'Verify Before Report', 'public');
   } else if (ptype === 'Retail') {
     html += sec('🛍 Retail Characteristics', 'retail');
     const ret = a.retail||{};
     html += row('Traffic Count (AADT)', indot.aadt ? `${indot.aadt} (${indot.year||''} — ${indot.roadName||''})` : (indot.status||'Needs Research'), 'public');
-    html += row('Frontage', ret.frontage||'Needs Verification', 'public');
-    html += row('Visibility', ret.visibility||'Needs Verification', 'public');
-    html += row('Access Points', ret.accessPoints||'Needs Verification', 'public');
-    html += row('Drive-Thru', ret.driveThru||'Needs Verification', 'public');
-    html += row('Parking Count', ret.parkingCount||'Needs Verification', 'public');
-    html += row('Parking Ratio', ret.parkingRatio||'Needs Verification', 'public');
+    html += row('Frontage', ret.frontage||'Verify Before Report', 'public');
+    html += row('Visibility', ret.visibility||'Verify Before Report', 'public');
+    html += row('Access Points', ret.accessPoints||'Verify Before Report', 'public');
+    html += row('Drive-Thru', ret.driveThru||'Verify Before Report', 'public');
+    html += row('Parking Count', ret.parkingCount||'Verify Before Report', 'public');
+    html += row('Parking Ratio', ret.parkingRatio||'Verify Before Report', 'public');
   } else if (ptype === 'Office') {
     html += sec('🏛 Office Characteristics', 'office');
     const off = a.office||{};
-    html += row('Parking Count', off.parkingCount||'Needs Verification', 'public');
-    html += row('Parking Ratio', off.parkingRatio||'Needs Verification', 'public');
-    html += row('Elevator Count', off.elevatorCount||'Needs Verification', 'public');
-    html += row('Floor Plate Size', off.floorPlateSize||'Needs Verification', 'public');
-    html += row('Common Area Factor', off.commonAreaFactor||'Needs Verification', 'public');
+    html += row('Parking Count', off.parkingCount||'Verify Before Report', 'public');
+    html += row('Parking Ratio', off.parkingRatio||'Verify Before Report', 'public');
+    html += row('Elevator Count', off.elevatorCount||'Verify Before Report', 'public');
+    html += row('Floor Plate Size', off.floorPlateSize||'Verify Before Report', 'public');
+    html += row('Common Area Factor', off.commonAreaFactor||'Verify Before Report', 'public');
   } else if (ptype === 'Multifamily') {
     html += sec('🏘 Multifamily Characteristics', 'multifamily');
     const mf = a.multifamily||{};
-    html += row('Unit Count', mf.unitCount||'Needs Verification', 'public');
-    html += row('Unit Mix', mf.unitMix||'Needs Verification', 'public');
-    html += row('Avg Unit Size', mf.avgUnitSize||'Needs Verification', 'public');
-    html += row('Avg Rent / Unit', mf.avgRentPerUnit||'Needs Verification', 'public');
-    html += row('Vacancy by Unit Type', mf.vacancyByType||'Needs Verification', 'public');
-    html += row('Parking Count', mf.parkingCount||'Needs Verification', 'public');
-    html += row('Amenities', mf.amenities||'Needs Verification', 'public');
+    html += row('Unit Count', mf.unitCount||'Verify Before Report', 'public');
+    html += row('Unit Mix', mf.unitMix||'Verify Before Report', 'public');
+    html += row('Avg Unit Size', mf.avgUnitSize||'Verify Before Report', 'public');
+    html += row('Avg Rent / Unit', mf.avgRentPerUnit||'Verify Before Report', 'public');
+    html += row('Vacancy by Unit Type', mf.vacancyByType||'Verify Before Report', 'public');
+    html += row('Parking Count', mf.parkingCount||'Verify Before Report', 'public');
+    html += row('Amenities', mf.amenities||'Verify Before Report', 'public');
   }
 
   // Assessed values & tax
@@ -757,17 +870,17 @@ function renderPublicData() {
   html += row('Tax District', a.taxDistrict, 'public');
   html += row('Tax Abatements', a.taxAbatements, 'public');
   html += row('Tax Incentives', a.taxIncentives, 'public');
-  html += row('TIF District', a.tifIndicator==='Yes' ? (a.tifDistrict||'Yes — verify district name') : (a.tifIndicator||'Needs Verification'), 'public');
+  html += row('TIF District', a.tifIndicator==='Yes' ? (a.tifDistrict||'Yes — verify district name') : (a.tifIndicator||'Verify Before Report'), 'public');
 
   // Zoning
   html += sec('🗺 Zoning & Land Use');
   html += row('Zoning District', a.zoning, 'public');
   html += row('Zoning Description', a.zoningDescription, 'public');
   html += row('Permitted Uses', a.permittedUses||'Needs Verification — check zoning ordinance', 'public');
-  html += row('Conditional Uses', a.conditionalUses||'Needs Verification', 'public');
-  html += row('Overlay Districts', a.overlayDistricts||'Needs Verification', 'public');
+  html += row('Conditional Uses', a.conditionalUses||'Verify Before Report', 'public');
+  html += row('Overlay Districts', a.overlayDistricts||'Verify Before Report', 'public');
   html += row('Future Land Use', a.futureLandUse||'Needs Verification — check comprehensive plan', 'public');
-  html += row('Current Use Compliance', a.currentUseCompliance||'Needs Verification', 'public');
+  html += row('Current Use Compliance', a.currentUseCompliance||'Verify Before Report', 'public');
 
   // Site & flood
   html += sec('🌊 Site & Flood Zone (FEMA NFHL)');
@@ -856,7 +969,7 @@ function renderCoStarGuide() {
   const ptype = getPropertyType();
 
   const typeGuide = {
-    Industrial: `<div class="checklist-item"><span class="checklist-step">Type-Specific: Industrial</span><div style="font-size:11px;color:#555;">In the CoStar subject property record, confirm: clear height, dock-high door count, drive-in door count, column spacing, bay spacing, office%, sprinkler type, rail access, power capacity. If unavailable, note "CoStar Input Needed" in Action Items.</div></div>`,
+    Industrial: `<div class="checklist-item"><span class="checklist-step">Type-Specific: Industrial</span><div style="font-size:11px;color:#555;">In the CoStar subject property record, confirm: clear height, dock-high door count, drive-in door count, column spacing, bay spacing, office%, sprinkler type, rail access, power capacity. If unavailable, note "Pull From CoStar" in Action Items.</div></div>`,
     Retail: `<div class="checklist-item"><span class="checklist-step">Type-Specific: Retail</span><div style="font-size:11px;color:#555;">In CoStar: confirm frontage, visibility rating, parking count, drive-thru availability, anchor status. Traffic counts are fetched from INDOT automatically — verify they match the correct road.</div></div>`,
     Office: `<div class="checklist-item"><span class="checklist-step">Type-Specific: Office</span><div style="font-size:11px;color:#555;">In CoStar: confirm parking count/ratio, elevator count, floor plate size, common area factor (CAF/load factor).</div></div>`,
     Multifamily: `<div class="checklist-item"><span class="checklist-step">Type-Specific: Multifamily — Paste Rent Roll in Tab 3</span><div style="font-size:11px;color:#555;">The Rent Roll section in Tab 3 is now visible. Paste the full tenant roster (unit type, SF, rent, lease dates) there. Also confirm unit mix, avg unit size, vacancy by unit type.</div></div>`,
@@ -921,7 +1034,8 @@ async function parseCoStarData() {
   }
   renderReportData();
   document.getElementById('downloadBtn').disabled = false;
-  log('✅ CoStar data ready. Click Download Excel File.');
+  setWorkflowStep(4);
+  log('✅ CoStar data added. Click Download Workbook.');
 }
 
 function renderReportData() {
@@ -983,9 +1097,9 @@ function downloadExcel() {
         t = d.treasury||{}, f = d.fema||{}, indot = d.indot||{};
   const co = c.county||{}, st = c.state||{}, nat = c.national||{};
   const ptype = getPropertyType();
-  const NVstr = 'Needs Verification';
-  const CI = 'CoStar Input Needed';
-  const MV = 'Manual Verification Required';
+  const NVstr = 'Verify Before Report';
+  const CI = 'Pull From CoStar';
+  const MV = 'Verify Using Source Documents';
   const nv = v => (!v || NV(v)) ? (v||NVstr) : v;
 
   function addSheet(name, rows) {
@@ -1539,6 +1653,7 @@ function downloadExcel() {
 
   // Download
   const safeName = (d.address||'Property').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_').slice(0,40);
+  setWorkflowStep(5);
   XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`);
 }
 
