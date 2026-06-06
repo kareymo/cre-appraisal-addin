@@ -946,8 +946,9 @@ function downloadExcel() {
     chk('Property Summary','Year Built','gateway.ifionline.org — parcel detail',a.yearBuilt);
     chk('Property Summary','Construction Type','gateway.ifionline.org → Property Record Card',a.constructionType);
     chk('Property Summary','Condition','Site inspection — verify in person',a.condition);
-    chk('Property Summary','Zoning','Indianapolis Planning / county zoning map',a.zoning);
-    chk('Property Summary','Zoning Description','Indianapolis Planning / county zoning map',a.zoningDescription);
+    const zoningSource = (d.countyFips === '097') ? 'Indianapolis Planning Dept — maps.indy.gov/indygis' : `${d.countyName} Planning / Zoning Dept or county GIS map`;
+    chk('Property Summary','Zoning', zoningSource, a.zoning);
+    chk('Property Summary','Zoning Description', zoningSource, a.zoningDescription);
     chk('Property Summary','Assessed Land Value','gateway.ifionline.org → Values tab',a.assessedLandValue);
     chk('Property Summary','Assessed Improvements','gateway.ifionline.org → Values tab',a.assessedImprovementValue);
     chk('Property Summary','Total Assessed Value','gateway.ifionline.org → Values tab',a.assessedTotalValue);
