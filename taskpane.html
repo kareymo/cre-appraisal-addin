@@ -936,51 +936,98 @@ function downloadExcel() {
     ];
 
     // Section B — dynamic: only fields that actually need action
-    const missing = [];
-    const chk = (sheet, field, source, val) => {
-      if (isM(val)) missing.push([sheet, field, source, '']);
+    // Each entry: [sheet, field, linkText, url, val]
+    // linkText = short description shown in cell; url = hyperlink target
+    const missing = []; // [sheet, field, linkText, url]
+    const chk = (sheet, field, linkText, url, val) => {
+      if (isM(val)) missing.push([sheet, field, linkText, url]);
     };
-    chk('Property Summary','Current Owner','gateway.ifionline.org — parcel detail',a.currentOwner);
-    chk('Property Summary','Property Class / Use','gateway.ifionline.org — parcel detail',a.propertyClass||a.currentUse);
-    chk('Property Summary','Land Area (Acres)','gateway.ifionline.org — parcel detail',a.landArea);
-    chk('Property Summary','Year Built','gateway.ifionline.org — parcel detail',a.yearBuilt);
-    chk('Property Summary','Construction Type','gateway.ifionline.org → Property Record Card',a.constructionType);
-    chk('Property Summary','Condition','Site inspection — verify in person',a.condition);
-    const zoningSource = (d.countyFips === '097') ? 'Indianapolis Planning Dept — maps.indy.gov/indygis' : `${d.countyName} Planning / Zoning Dept or county GIS map`;
-    chk('Property Summary','Zoning', zoningSource, a.zoning);
-    chk('Property Summary','Zoning Description', zoningSource, a.zoningDescription);
-    chk('Property Summary','Assessed Land Value','gateway.ifionline.org → Values tab',a.assessedLandValue);
-    chk('Property Summary','Assessed Improvements','gateway.ifionline.org → Values tab',a.assessedImprovementValue);
-    chk('Property Summary','Total Assessed Value','gateway.ifionline.org → Values tab',a.assessedTotalValue);
-    chk('Property Summary','Assessment Year','gateway.ifionline.org → Values tab',a.assessedValueYear);
-    chk('Property Summary','Annual Taxes','gateway.ifionline.org → Tax Bill tab',a.annualTaxes);
-    chk('Property Summary','Last Sale Date','gateway.ifionline.org → Transfer History',a.lastSaleDate);
-    chk('Property Summary','Last Sale Price','Indiana DLGF Sales Disclosure (dlgf.in.gov)',a.lastSalePrice);
-    chk('Property Summary','Listing Price','LoopNet.com — search the address',a.listingPrice);
-    chk('Property Summary','Listing Broker','LoopNet.com — listing detail page',a.listingBroker);
-    chk('Property Summary','Tenant','LoopNet.com or direct observation',a.tenant);
-    chk('Property Summary','Lease Expiration','LoopNet.com or tenant lease abstract',a.leaseExpiration);
-    chk('Property Summary','Annual Rent (NNN)','LoopNet.com or tenant lease abstract',a.annualRent);
-    chk('Property Summary','Cap Rate (Current)','LoopNet.com listing or sales analysis',a.capRate);
-    chk('Demographics','County Population','data.census.gov → ACS 5-Year Table B01003',co.pop);
-    chk('Demographics','County Median HH Income','data.census.gov → ACS 5-Year Table B19013',co.medHHIncome);
-    chk('Demographics','County Median Gross Rent','data.census.gov → ACS 5-Year Table B25064',co.medGrossRent);
-    chk('Demographics','Indiana Median HH Income','data.census.gov → ACS 5-Year Table B19013',st?st.medHHIncome:null);
-    chk('Demographics','US Median HH Income','data.census.gov → ACS 5-Year Table B19013',nat?nat.medHHIncome:null);
-    chk('Demographics','County Unemployment %','bls.gov/lau — Local Area Unemployment',bls.blsCounty?.value);
-    chk('Demographics','Indiana Unemployment %','bls.gov/lau — Local Area Unemployment',bls.blsState?.value);
-    chk('Demographics','US Unemployment %','bls.gov/lau — Local Area Unemployment',bls.blsNational?.value);
+
+    // Parcel-specific URL helpers
+    const parcel = (!isM(a.parcelNumber)) ? a.parcelNumber : null;
+    const isMarion = d.countyFips === '097';
+
+    // Assessor base URLs
+    const assessorURL = isMarion
+      ? 'https://assessor.indy.gov/'
+      : 'https://gateway.ifionline.org/assessedValue/';
+    const assessorText = parcel
+      ? (isMarion ? `assessor.indy.gov — search: ${parcel}` : `Indiana Gateway — search: ${parcel}`)
+      : (isMarion ? 'assessor.indy.gov — search the address' : 'Indiana Gateway — search the address');
+
+    chk('Property Summary','Current Owner',        assessorText+' → Owner / Taxpayer field',     assessorURL, a.currentOwner);
+    chk('Property Summary','Property Class / Use', assessorText+' → parcel summary page',         assessorURL, a.propertyClass||a.currentUse);
+    chk('Property Summary','Land Area (Acres)',    assessorText+' → parcel summary page',         assessorURL, a.landArea);
+    chk('Property Summary','Year Built',           assessorText+' → parcel summary page',         assessorURL, a.yearBuilt);
+    chk('Property Summary','Construction Type',    assessorText+' → Property Record Card link',   assessorURL, a.constructionType);
+    chk('Property Summary','Condition',            'Site inspection — verify in person', '', a.condition);
+
+    const zoningURL  = isMarion
+      ? 'https://maps.indy.gov/indygis/'
+      : `https://www.google.com/search?q=${encodeURIComponent(d.countyName+' Indiana zoning GIS map planning department')}`;
+    const zoningText = isMarion
+      ? 'IndyGIS — search address → enable Zoning layer'
+      : `Search: ${d.countyName} zoning map → open county planning portal`;
+    chk('Property Summary','Zoning',             zoningText, zoningURL, a.zoning);
+    chk('Property Summary','Zoning Description', zoningText, zoningURL, a.zoningDescription);
+
+    chk('Property Summary','Assessed Land Value',   assessorText+' → Assessment Values tab → Land row',    assessorURL, a.assessedLandValue);
+    chk('Property Summary','Assessed Improvements', assessorText+' → Assessment Values tab → Impr. row',   assessorURL, a.assessedImprovementValue);
+    chk('Property Summary','Total Assessed Value',  assessorText+' → Assessment Values tab → Total row',   assessorURL, a.assessedTotalValue);
+    chk('Property Summary','Assessment Year',       assessorText+' → Assessment Values tab → Year column', assessorURL, a.assessedValueYear);
+
+    const taxURL  = isMarion ? 'https://www.indy.gov/activity/view-pay-property-taxes' : 'https://gateway.ifionline.org/taxBill/';
+    const taxText = parcel
+      ? (isMarion ? `indy.gov/taxes — search: ${parcel}` : `Indiana Gateway Tax Bill — search: ${parcel}`)
+      : (isMarion ? 'indy.gov — View/Pay Property Taxes → search address' : 'Indiana Gateway Tax Bill — search address');
+    chk('Property Summary','Annual Taxes', taxText, taxURL, a.annualTaxes);
+
+    const salesDiscURL  = 'https://secure.in.gov/apps/dlgf/sdf/';
+    const salesDiscText = parcel ? `Indiana DLGF Sales Disclosure — search: ${parcel}` : 'Indiana DLGF Sales Disclosure — search address';
+    chk('Property Summary','Last Sale Date',  assessorText+' → Transfer History tab → most recent date', assessorURL, a.lastSaleDate);
+    chk('Property Summary','Last Sale Price', salesDiscText, salesDiscURL, a.lastSalePrice);
+
+    chk('Property Summary','Listing Price',    'LoopNet.com — search the property address',      'https://www.loopnet.com/', a.listingPrice);
+    chk('Property Summary','Listing Broker',   'LoopNet.com — listing detail page → Broker',     'https://www.loopnet.com/', a.listingBroker);
+    chk('Property Summary','Tenant',           'LoopNet.com — listing page OR site observation', 'https://www.loopnet.com/', a.tenant);
+    chk('Property Summary','Lease Expiration', 'LoopNet.com — listing page OR tenant lease',     'https://www.loopnet.com/', a.leaseExpiration);
+    chk('Property Summary','Annual Rent (NNN)','LoopNet.com — listing page OR tenant lease',     'https://www.loopnet.com/', a.annualRent);
+    chk('Property Summary','Cap Rate (Current)','LoopNet.com listing OR sales comparison',       'https://www.loopnet.com/', a.capRate);
+
+    chk('Demographics','County Population',       'data.census.gov → Table B01003 → filter by county', 'https://data.census.gov/', co.pop);
+    chk('Demographics','County Median HH Income', 'data.census.gov → Table B19013 → filter by county', 'https://data.census.gov/', co.medHHIncome);
+    chk('Demographics','County Median Gross Rent','data.census.gov → Table B25064 → filter by county', 'https://data.census.gov/', co.medGrossRent);
+    chk('Demographics','Indiana Median HH Income','data.census.gov → Table B19013 → filter: Indiana',  'https://data.census.gov/', st?st.medHHIncome:null);
+    chk('Demographics','US Median HH Income',     'data.census.gov → Table B19013 → filter: US',       'https://data.census.gov/', nat?nat.medHHIncome:null);
+    chk('Demographics','County Unemployment %',   `bls.gov/lau — search: ${d.countyName}`,              'https://www.bls.gov/lau/', bls.blsCounty?.value);
+    chk('Demographics','Indiana Unemployment %',  'bls.gov/lau — Indiana statewide rate',               'https://www.bls.gov/lau/', bls.blsState?.value);
+    chk('Demographics','US Unemployment %',       'bls.gov/lau — National unemployment rate',           'https://www.bls.gov/lau/', bls.blsNational?.value);
+
+    // Rows 1-62 are the fixed section. Section B starts at row 63.
+    // Row 63 = section header, Row 64 = col headers, Row 65 = first missing item
+    const SECTION_B_DATA_START = 65; // Excel row of first missing item
 
     if (missing.length > 0) {
-      aiRows.push(['── MISSING DATA (look up and enter below) ──','','','']);
-      aiRows.push(['Sheet','Field','Where to Find It','✏ Enter Value Here']);
-      missing.forEach(row => aiRows.push(row));
+      aiRows.push(['── MISSING DATA — click the link in column C to open the source ──','','','']);
+      aiRows.push(['Sheet','Field','🔗 Click to Open Source (then search as noted)','✏ Enter Value Here']);
+      missing.forEach(([sheet, field, linkText]) => aiRows.push([sheet, field, linkText, '']));
     } else {
       aiRows.push(['✅ All data fields auto-populated — no missing data lookups needed!','','','']);
     }
 
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
-    ws0['!cols'] = [{wch:22},{wch:32},{wch:44},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
+    ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
+
+    // Add hyperlinks to column C for each missing item
+    missing.forEach(([, , , url], idx) => {
+      if (!url) return;
+      const excelRow = SECTION_B_DATA_START + idx;
+      const cellRef = `C${excelRow}`;
+      if (ws0[cellRef]) {
+        ws0[cellRef].l = { Target: url };
+      }
+    });
+
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
   }
 
