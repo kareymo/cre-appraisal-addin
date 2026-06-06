@@ -450,23 +450,86 @@ async function fetchFEMA(lat, lon) {
 // ── ASSESSOR (Claude API + web search) ───────────────────────────────────────
 async function fetchAssessorData(rawAddress, matchedAddress, countyFips, countyName) {
   if (!apiKey) return { assessor: { note: 'No API key — add in Settings for assessor lookup' } };
-  const prompt = `You are a commercial real estate research assistant for an Indiana USPAP appraiser.
-Property: "${matchedAddress}" | County: ${countyName} (FIPS 18${countyFips})
-Search Indiana Gateway (gateway.ifionline.org) and LoopNet for this property.
-Return ONLY valid JSON (no markdown):
-{"parcelNumber":"","propertyClass":"","landArea":"","landAreaUnits":"","buildingSF":"","yearBuilt":"","constructionType":"","condition":"","assessedLandValue":"","assessedImprovementValue":"","assessedTotalValue":"","assessedValueYear":"","annualTaxes":"","taxYear":"","currentOwner":"","lastSaleDate":"","lastSalePrice":"","zoning":"","zoningDescription":"","currentUse":"","listingPrice":"","listingBroker":"","tenant":"","leaseExpiration":"","annualRent":"","capRate":"","salesHistory":[],"taxHistory":[],"notes":""}
-Use "MANUAL_LOOKUP_REQUIRED" for fields not found. Do not guess.`;
+
+  const isMarion = countyFips === '097';
+  const assessorNote = isMarion
+    ? 'For Marion County: search https://assessor.indy.gov — enter the street address in the search box.'
+    : `For ${countyName}: search https://gateway.ifionline.org/assessedValue/ — select the county, then search by address.`;
+
+  const prompt = `You are a commercial real estate research assistant helping an Indiana USPAP-certified appraiser gather public record data. Your job is to search public sources and return everything you find.
+
+PROPERTY TO RESEARCH: "${matchedAddress}"
+COUNTY: ${countyName} (Indiana FIPS 18${countyFips})
+
+STEP 1 — ASSESSOR DATA
+${assessorNote}
+Search for this exact address. Look for: parcel number, owner name, land area, building SF, year built, construction type, property class, assessed land value, assessed improvement value, total assessed value, assessment year, annual tax amount, tax year, zoning.
+
+STEP 2 — LISTING / INCOME DATA
+Search LoopNet.com for "${matchedAddress}" — look for: list price, listing broker, tenant name, lease expiration date, annual rent, cap rate, NOI.
+Also try searching Google for: "${matchedAddress}" site:loopnet.com
+
+STEP 3 — SALES HISTORY
+Search Indiana public records for recent sales of this parcel. Try: "${matchedAddress} Indiana sales disclosure" and the assessor site transfer history.
+
+Return ONLY a single valid JSON object. No markdown, no explanation, just the JSON:
+{
+  "parcelNumber": "",
+  "propertyClass": "",
+  "landArea": "",
+  "landAreaUnits": "acres or sq ft",
+  "buildingSF": "",
+  "yearBuilt": "",
+  "constructionType": "",
+  "condition": "",
+  "assessedLandValue": "",
+  "assessedImprovementValue": "",
+  "assessedTotalValue": "",
+  "assessedValueYear": "",
+  "annualTaxes": "",
+  "taxYear": "",
+  "currentOwner": "",
+  "lastSaleDate": "",
+  "lastSalePrice": "",
+  "zoning": "",
+  "zoningDescription": "",
+  "currentUse": "",
+  "listingPrice": "",
+  "listingBroker": "",
+  "tenant": "",
+  "leaseExpiration": "",
+  "annualRent": "",
+  "capRate": "",
+  "salesHistory": [],
+  "taxHistory": [],
+  "notes": ""
+}
+
+Rules:
+- Use "MANUAL_LOOKUP_REQUIRED" ONLY if you searched and genuinely could not find the value
+- Do NOT guess or estimate any value
+- salesHistory = array of {date, price, buyer, seller} from public transfer records
+- taxHistory = array of {year, amount} from assessor records
+- If you find a parcel number, use it to search for more detail`;
+
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','content-type':'application/json'},
-      body: JSON.stringify({ model:'claude-sonnet-4-5', max_tokens:1500, tools:[{name:'web_search',type:'web_search_20250305',max_uses:5}], messages:[{role:'user',content:prompt}] })
+      body: JSON.stringify({
+        model:'claude-sonnet-4-5',
+        max_tokens:2500,
+        tools:[{name:'web_search',type:'web_search_20250305',max_uses:8}],
+        messages:[{role:'user',content:prompt}]
+      })
     });
     const d = await r.json();
     for (const block of (d.content||[])) {
       if (block.type==='text') {
         const m = block.text.match(/\{[\s\S]*\}/);
-        if (m) return { assessor: JSON.parse(m[0]) };
+        if (m) {
+          try { return { assessor: JSON.parse(m[0]) }; } catch(e) {}
+        }
       }
     }
   } catch(e) {}
