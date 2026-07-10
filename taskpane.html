@@ -580,16 +580,37 @@ async function geocodeAddress(address) {
 // ── CENSUS ACS ────────────────────────────────────────────────────────────────
 async function fetchCensusACS(countyFips, cousub) {
   if (!countyFips) return { census: {} };
-  const BASE = 'https://api.census.gov/data/2023/acs/acs5';
   const VARS = 'NAME,B01003_001E,B19013_001E,B25064_001E,B23025_003E,B23025_005E';
-  async function sf(url) {
-    try { const r=await fetch(url); if(!r.ok) return null; return await r.json(); } catch(e){ return null; }
+
+  // Fetch with timeout — Census API is free/unkeyed and can hang
+  async function sf(url, timeoutMs=8000) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
+      const r = await fetch(url, {signal:ctrl.signal});
+      clearTimeout(timer);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch(e) { return null; }
   }
-  const [countyRes,stateRes,natRes] = await Promise.all([
-    sf(`${BASE}?get=${VARS}&for=county:${countyFips}&in=state:18`),
-    sf(`${BASE}?get=${VARS}&for=state:18`),
-    sf(`${BASE}?get=${VARS}&for=us:1`)
-  ]);
+
+  // Try most-recent year first, fall back one year if it fails
+  async function tryYear(yr) {
+    const BASE = `https://api.census.gov/data/${yr}/acs/acs5`;
+    const [countyRes,stateRes,natRes] = await Promise.all([
+      sf(`${BASE}?get=${VARS}&for=county:${countyFips}&in=state:18`),
+      sf(`${BASE}?get=${VARS}&for=state:18`),
+      sf(`${BASE}?get=${VARS}&for=us:1`)
+    ]);
+    return [countyRes,stateRes,natRes];
+  }
+
+  let [countyRes,stateRes,natRes] = await tryYear(2023);
+  // If county call failed, try 2022 vintage
+  if (!countyRes && !stateRes) {
+    [countyRes,stateRes,natRes] = await tryYear(2022);
+  }
+
   function parse(rows) {
     if (!rows||rows.length<2) return null;
     const r=rows[1];
