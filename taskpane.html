@@ -161,7 +161,7 @@
 </div>
 
 <!-- Download button -->
-<button id="downloadBtn" class="btn btn-success w-100 mb-2" onclick="downloadExcel()" disabled>
+<button id="downloadBtn" class="btn btn-success w-100 mb-2" onclick="downloadExcel().catch(e=>{console.error('Download error:',e);alert('Download failed: '+e.message)})" disabled>
   ⬇ Download Workbook
 </button>
 
@@ -490,7 +490,36 @@ async function startResearch() {
     if (treasuryR.status==='fulfilled'){ Object.assign(publicData, treasuryR.value); }
     if (femaR.status==='fulfilled')   { Object.assign(publicData, femaR.value); }
     if (assessorR.status==='fulfilled'){ Object.assign(publicData, assessorR.value);
-      log('Property records retrieved.'); }
+      log('Property records retrieved.');
+      // Back-fill census/bls/treasury from Claude's econ data if APIs were blocked
+      const econ = publicData.assessor?.econ || {};
+      if (econ.countyPop || econ.countyMedianHHIncome) {
+        if (!publicData.census?.county?.pop) {
+          const toNum = s => { const n=parseFloat(String(s).replace(/[^0-9.]/g,'')); return isNaN(n)?null:n; };
+          publicData.census = publicData.census || {};
+          publicData.census.county = Object.assign(publicData.census.county||{}, {
+            pop: toNum(econ.countyPop), medHHIncome: toNum(econ.countyMedianHHIncome)
+          });
+          if (econ.countyPop || econ.countyMedianHHIncome) log('Demographics sourced via web search.');
+        }
+      }
+      if (econ.countyUnemployRate && !publicData.bls?.blsCounty) {
+        const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
+        publicData.bls = publicData.bls || {};
+        if (econ.countyUnemployRate)   publicData.bls.blsCounty   = {value:toRate(econ.countyUnemployRate),   period:econ.countyUnemployPeriod||''};
+        if (econ.stateUnemployRate)    publicData.bls.blsState    = {value:toRate(econ.stateUnemployRate),    period:econ.stateUnemployPeriod||''};
+        if (econ.nationalUnemployRate) publicData.bls.blsNational = {value:toRate(econ.nationalUnemployRate), period:econ.nationalUnemployPeriod||''};
+        log('Unemployment rates sourced via web search.');
+      }
+      if (econ.treasury10yr && !publicData.treasury?.y10) {
+        publicData.treasury = publicData.treasury || {};
+        publicData.treasury.y10 = econ.treasury10yr;
+        publicData.treasury.y5  = econ.treasury5yr || '';
+        publicData.treasury.y2  = econ.treasury2yr || '';
+        publicData.treasury.date = econ.treasuryDate || new Date().toLocaleDateString();
+        log('Treasury rates sourced via web search.');
+      }
+    }
     else { log('Note: Some property data could not be retrieved automatically — see Action Items for sources.'); }
 
     // Detect property type and run INDOT if retail
@@ -734,6 +763,11 @@ For multi-tenant: extract FULL rent roll — all tenants with suite, SF, rent, l
 ━━━ SEARCH 8: FOLLOW-UP ━━━
 Search Google for the parcel number found in Search 1. Look for additional public records, TIF district confirmation, news about the property, or additional data sources.
 
+━━━ SEARCH 9: DEMOGRAPHICS, UNEMPLOYMENT & TREASURY RATES ━━━
+A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income.
+B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "Indiana unemployment rate" and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025").
+C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate current" — get the current 10-year Treasury yield. Also get the 5-year and 2-year yields if available.
+
 ━━━ OUTPUT — Return ONLY this JSON, no markdown: ━━━
 {
   "parcelNumber":"","propertyType":"","propertySubtype":"","propertyClass":"",
@@ -763,16 +797,23 @@ Search Google for the parcel number found in Search 1. Look for additional publi
   "transferHistory":[],
   "salesHistory":[],
   "taxHistory":[],
+  "econ":{
+    "countyPop":"","countyMedianHHIncome":"",
+    "countyUnemployRate":"","countyUnemployPeriod":"",
+    "stateUnemployRate":"","stateUnemployPeriod":"",
+    "nationalUnemployRate":"","nationalUnemployPeriod":"",
+    "treasury10yr":"","treasury5yr":"","treasury2yr":"","treasuryDate":""
+  },
   "notes":""
 }
-Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}].`;
+Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}]. For econ fields use plain numbers/strings like "4.2" or "4.2% — Apr 2025".`;
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','content-type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:4000,
-        tools:[{name:'web_search',type:'web_search_20250305',max_uses:8}],
+        tools:[{name:'web_search',type:'web_search_20250305',max_uses:12}],
         messages:[{role:'user',content:prompt}]})
     });
     const d = await r.json();
@@ -1183,7 +1224,7 @@ function resolveField(item, header) {
 }
 
 // ── DOWNLOAD EXCEL ────────────────────────────────────────────────────────────
-function downloadExcel() {
+async function downloadExcel() {
   const wb = XLSX.utils.book_new();
   const d = publicData, a = d.assessor||{}, c = d.census||{}, bls = d.bls||{},
         t = d.treasury||{}, f = d.fema||{}, indot = d.indot||{};
@@ -1392,6 +1433,76 @@ function downloadExcel() {
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
     ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
+  }
+
+  // ── DAD'S TEMPLATE SHEETS (17 sheets, exact format) ─────────────────────────
+  {
+    let templateWb = null;
+    try {
+      const resp = await fetch('./cre_template.xlsx');
+      if (resp.ok) {
+        const arrBuf = await resp.arrayBuffer();
+        templateWb = XLSX.read(new Uint8Array(arrBuf), {type:'array', cellStyles:true});
+      } else {
+        console.warn('Template fetch HTTP', resp.status);
+      }
+    } catch(e) { console.warn('Template fetch failed:', e); }
+
+    if (templateWb) {
+      // Map AUTO: marker → actual researched value
+      const autoMap = {
+        'AUTO:address':               d.address||'',
+        'AUTO:citystate':             d.city ? d.city+', IN' : '',
+        'AUTO:county':                d.countyName||'',
+        'AUTO:township':              a.township||d.township||'',
+        'AUTO:tenant':                a.tenant||'',
+        'AUTO:buildingSF':            a.buildingSF ? +a.buildingSF : '',
+        'AUTO:landAC':                a.landArea   ? +a.landArea   : '',
+        'AUTO:effectivedate':         d.researchDate||new Date().toLocaleDateString(),
+        'AUTO:zoning':                a.zoning||'',
+        'AUTO:floodZone':             (f.zone||'X')+(f.subType?'/'+f.subType:''),
+        'AUTO:ownerofrecord':         a.currentOwner||'',
+        'AUTO:parcelnumber':          a.parcelNumber||'',
+        'AUTO:taxdistrict':           a.taxDistrict||'',
+        'AUTO:dateoflastassessment':  a.assessedValueYear ? 'March 1, '+a.assessedValueYear : '',
+        'AUTO:landsize':              a.landAreaSF ? a.landAreaSF+' SF' : (a.landArea ? a.landArea+' AC' : ''),
+        'AUTO:buildingsize':          a.buildingSF ? a.buildingSF+' SF' : '',
+      };
+
+      for (const shName of templateWb.SheetNames) {
+        const ws = templateWb.Sheets[shName];
+        if (!ws) continue;
+
+        // Replace AUTO: cells with real values
+        if (ws['!ref']) {
+          const range = XLSX.utils.decode_range(ws['!ref']);
+          for (let R = range.s.r; R <= range.e.r; R++) {
+            for (let C = range.s.c; C <= range.e.c; C++) {
+              const addr = XLSX.utils.encode_cell({r:R, c:C});
+              const cell = ws[addr];
+              if (!cell) continue;
+              const v = cell.v;
+              if (typeof v === 'string' && v.startsWith('AUTO:')) {
+                const rep = autoMap[v];
+                if (rep !== undefined && rep !== '') {
+                  ws[addr] = Object.assign({}, cell, {
+                    t: typeof rep === 'number' ? 'n' : 's',
+                    v: rep, w: String(rep)
+                  });
+                  delete ws[addr].f;
+                }
+              }
+            }
+          }
+        }
+
+        // Pre-populate comp data if CoStar data is available
+        if (shName === 'Imprvd Sales')  tplPopulateSales(ws,  costarData.sales);
+        if (shName === 'LeaseComps')    tplPopulateLeases(ws, costarData.leases);
+
+        XLSX.utils.book_append_sheet(wb, ws, shName);
+      }
+    }
   }
 
   // ── PROPERTY SUMMARY ────────────────────────────────────────────────────────
@@ -1632,8 +1743,9 @@ function downloadExcel() {
     ]);
   }
 
-  // ── COMP LEASES — alternating-column format matching appraiser's LeaseComps ──
-  {
+  // (Comp Leases, Comp Sales Grid, Income Approach, Reconciliation now come from cre_template.xlsx above)
+
+  if (false) { // ── legacy generated sheets — preserved for fallback reference only ──
     const leases = costarData.leases?(Array.isArray(costarData.leases)?costarData.leases:[costarData.leases]):[];
     const n = Math.min(Math.max(leases.length,1), 9);
     const gl = (i,...fields) => {
@@ -1946,11 +2058,61 @@ function downloadExcel() {
       ['Marketing Time:', r(45), '', ''],
     ]);
   }
+  } // end legacy block
 
   // Download
   const safeName = (d.address||'Property').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_').slice(0,40);
   setWorkflowStep(5);
   XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`);
+}
+
+
+// ── TEMPLATE COMP POPULATION HELPERS ─────────────────────────────────────────
+// Pre-fill Imprvd Sales comp columns from CoStar sales paste-in
+function tplPopulateSales(ws, salesData) {
+  if (!salesData) return;
+  const sales = Array.isArray(salesData) ? salesData : [salesData];
+  // Qual/val column 0-based index pairs matching dad's format:
+  // D/E, F/G, H/I, J/K, L/M, N/O, P/Q, (R=spacer), S/T, U/V, W/X, Y/Z, AA/AB, (AC/AD gap), AE/AF, AG/AH, AI/AJ, AK/AL
+  const qci = [3,5,7,9,11,13,15, 18,20,22,24,26, 30,32,34,36];
+  const vci = [4,6,8,10,12,14,16, 19,21,23,25,27, 31,33,35,37];
+  const g = (s,...ff) => { for(const f of ff){const v=resolveField(s,f);if(v)return v;} return ''; };
+  const ss = (c,r,v) => { if(!v)return; ws[XLSX.utils.encode_cell({r,c})]={t:'s',v:String(v),w:String(v)}; };
+  const sn = (c,r,v) => { const n=parseFloat(String(v).replace(/[,$\s]/g,'')); if(isNaN(n))return; ws[XLSX.utils.encode_cell({r,c})]={t:'n',v:n,w:String(n)}; };
+  sales.slice(0,16).forEach((sale,i) => {
+    const qc=qci[i], vc=vci[i]; if(qc===undefined)return;
+    ss(qc, 2, g(sale,'address'));
+    ss(qc, 3, g(sale,'city'));
+    ss(qc, 4, g(sale,'county'));
+    ss(qc, 5, g(sale,'township'));
+    ss(qc, 6, g(sale,'buyer','tenant','project name','project_name'));
+    sn(vc, 7, g(sale,'sale price','sale_price'));
+    sn(vc, 8, g(sale,'bldg sf','building_sf','building sf'));
+    sn(vc,10, g(sale,'land ac','land acres','land_ac'));
+    ss(qc,23, g(sale,'sale date','sale_date'));  // row 24 = market conditions date
+  });
+}
+
+// Pre-fill LeaseComps comp columns from CoStar lease paste-in
+function tplPopulateLeases(ws, leasesData) {
+  if (!leasesData) return;
+  const leases = Array.isArray(leasesData) ? leasesData : [leasesData];
+  // D/E, F/G, H/I, J/K, L/M, [N=avg col skip], O/P, Q/R, S/T, U/V, W/X, Y/Z
+  const qci = [3,5,7,9,11, 14,16,18,20,22,24];
+  const vci = [4,6,8,10,12, 15,17,19,21,23,25];
+  const g = (s,...ff) => { for(const f of ff){const v=resolveField(s,f);if(v)return v;} return ''; };
+  const ss = (c,r,v) => { if(!v)return; ws[XLSX.utils.encode_cell({r,c})]={t:'s',v:String(v),w:String(v)}; };
+  const sn = (c,r,v) => { const n=parseFloat(String(v).replace(/[,$\s]/g,'')); if(isNaN(n))return; ws[XLSX.utils.encode_cell({r,c})]={t:'n',v:n,w:String(n)}; };
+  leases.slice(0,11).forEach((lease,i) => {
+    const qc=qci[i], vc=vci[i]; if(qc===undefined)return;
+    ss(qc, 2, g(lease,'address'));
+    ss(qc, 3, g(lease,'city'));
+    ss(qc, 4, g(lease,'county'));
+    ss(qc, 5, g(lease,'tenant','name'));
+    ss(qc, 6, g(lease,'lease date','sale_date','date'));
+    sn(vc, 7, g(lease,'rent/sf nnn','rent_psf','asking rent','rent per sf'));
+    sn(vc, 8, g(lease,'suite sf','bldg sf','building sf'));
+  });
 }
 
 
