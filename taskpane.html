@@ -5,19 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CRE Appraisal Research</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"/>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx-style@0.8.13/dist/xlsx.full.min.js"></script>
-  <script>
-    // Polyfill xlsx-style 0.8.x — missing utils added in SheetJS 0.11+
-    if (typeof XLSX !== 'undefined' && XLSX.utils) {
-      if (!XLSX.utils.book_new)
-        XLSX.utils.book_new = function() { return { SheetNames: [], Sheets: {} }; };
-      if (!XLSX.utils.book_append_sheet)
-        XLSX.utils.book_append_sheet = function(wb, ws, name) {
-          if (!name) throw new Error('Sheet name required');
-          wb.SheetNames.push(name); wb.Sheets[name] = ws;
-        };
-    }
-  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body { font-size: 13px; background: #f8f9fa; max-width: 960px; margin: 0 auto; padding: 10px; }
     .tab-content { padding: 10px 0; }
