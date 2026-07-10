@@ -1470,15 +1470,20 @@ async function downloadExcel() {
     } catch(e) { console.warn('Template fetch failed:', e); }
 
     if (templateWb) {
+      // Helper: safe number — returns number only if finite, else ''
+      const safeNum = v => { const n = +v; return (isFinite(n) && !isNaN(n)) ? n : ''; };
+      // City fallback: parse from address if geocoder didn't return city separately
+      const cityVal = d.city || (d.address ? (d.address.match(/,?\s*([A-Za-z\s]+),?\s*IN\b/i)||[])[1]?.trim() : '') || '';
+
       // Map AUTO: marker → actual researched value
       const autoMap = {
         'AUTO:address':               d.address||'',
-        'AUTO:citystate':             d.city ? d.city+', IN' : '',
+        'AUTO:citystate':             cityVal ? cityVal+', IN' : '',
         'AUTO:county':                d.countyName||'',
         'AUTO:township':              a.township||d.township||'',
         'AUTO:tenant':                a.tenant||'',
-        'AUTO:buildingSF':            a.buildingSF ? +a.buildingSF : '',
-        'AUTO:landAC':                a.landArea   ? +a.landArea   : '',
+        'AUTO:buildingSF':            safeNum(a.buildingSF),
+        'AUTO:landAC':                safeNum(a.landArea),
         'AUTO:effectivedate':         d.researchDate||new Date().toLocaleDateString(),
         'AUTO:zoning':                a.zoning||'',
         'AUTO:floodZone':             (f.zone||'X')+(f.subType?'/'+f.subType:''),
@@ -1494,7 +1499,7 @@ async function downloadExcel() {
         const ws = templateWb.Sheets[shName];
         if (!ws) continue;
 
-        // Replace AUTO: cells with real values
+        // Replace AUTO: cells — fill with real value, or blank if unknown (never leave AUTO: marker)
         if (ws['!ref']) {
           const range = XLSX.utils.decode_range(ws['!ref']);
           for (let R = range.s.r; R <= range.e.r; R++) {
@@ -1505,13 +1510,13 @@ async function downloadExcel() {
               const v = cell.v;
               if (typeof v === 'string' && v.startsWith('AUTO:')) {
                 const rep = autoMap[v];
-                if (rep !== undefined && rep !== '') {
-                  ws[addr] = Object.assign({}, cell, {
-                    t: typeof rep === 'number' ? 'n' : 's',
-                    v: rep, w: String(rep)
-                  });
-                  delete ws[addr].f;
-                }
+                // Always replace AUTO: marker — use value if available, blank if not
+                const val = (rep !== undefined && rep !== '') ? rep : '';
+                ws[addr] = Object.assign({}, cell, {
+                  t: (typeof val === 'number') ? 'n' : 's',
+                  v: val, w: String(val)
+                });
+                delete ws[addr].f;
               }
             }
           }
