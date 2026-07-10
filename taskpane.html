@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CRE Appraisal Research</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"/>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-style@0.8.13/dist/xlsx.full.min.js"></script>
   <style>
     body { font-size: 13px; background: #f8f9fa; max-width: 960px; margin: 0 auto; padding: 10px; }
     .tab-content { padding: 10px 0; }
@@ -1194,8 +1194,26 @@ function downloadExcel() {
   const MV = 'Verify Using Source Documents';
   const nv = v => (!v || NV(v)) ? (v||NVstr) : v;
 
+  // Apply Times New Roman to every cell in a worksheet
+  function applyTNR(ws) {
+    const base = { name: 'Times New Roman', sz: 11 };
+    if (!ws['!ref']) return;
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({r:R, c:C});
+        if (!ws[addr]) continue;
+        const existing = ws[addr].s || {};
+        ws[addr].s = Object.assign({}, existing, {
+          font: Object.assign({}, base, existing.font||{})
+        });
+      }
+    }
+  }
+
   function addSheet(name, rows) {
     const ws = XLSX.utils.aoa_to_sheet(rows);
+    applyTNR(ws);
     XLSX.utils.book_append_sheet(wb, ws, name);
     return ws;
   }
@@ -1598,12 +1616,11 @@ function downloadExcel() {
     ]);
   }
 
-  // ── COSTAR DATA SHEETS ───────────────────────────────────────────────────────
+  // ── COSTAR DATA SHEETS (raw data tables) ────────────────────────────────────
   const costarSheets = [
-    {name:'Comp Sales',    key:'sales',    headers:['Address','Sale Date','Sale Price','Price/SF','Bldg SF','Cap Rate','Buyer','Seller']},
-    {name:'Comp Leases',   key:'leases',   headers:['Address','Tenant','Suite SF','Rent/SF NNN','Lease Type','Lease Term','Lease Date']},
-    {name:'Market Analytics',key:'market', headers:['Market','Submarket','Vacancy Rate','Asking Rent NNN','Net Absorption SF','Under Construction SF','Avg Cap Rate']},
-    {name:'Active Listings',key:'listings',headers:['Address','List Price','Price/SF','Bldg SF','Cap Rate','Broker']},
+    {name:'Comp Sales (Raw)',  key:'sales',    headers:['Address','Sale Date','Sale Price','Price/SF','Bldg SF','Cap Rate','Buyer','Seller']},
+    {name:'Market Analytics',  key:'market',   headers:['Market','Submarket','Vacancy Rate','Asking Rent NNN','Net Absorption SF','Under Construction SF','Avg Cap Rate']},
+    {name:'Active Listings',   key:'listings', headers:['Address','List Price','Price/SF','Bldg SF','Cap Rate','Broker']},
   ];
   for (const cs of costarSheets) {
     const data = costarData[cs.key];
@@ -1615,6 +1632,97 @@ function downloadExcel() {
     ]);
   }
 
+  // ── COMP LEASES — alternating-column format matching appraiser's LeaseComps ──
+  {
+    const leases = costarData.leases?(Array.isArray(costarData.leases)?costarData.leases:[costarData.leases]):[];
+    const n = Math.min(Math.max(leases.length,1), 9);
+    const gl = (i,...fields) => {
+      if (!leases[i]) return '';
+      for (const f of fields) { const v = resolveField(leases[i], f); if (v) return v; }
+      return '';
+    };
+
+    const vc = i => String.fromCharCode(69 + i*2);
+    const qc = i => String.fromCharCode(68 + i*2);
+    const W = 3 + n*2;
+    const blank = () => Array(W).fill('');
+    const mkRow = (label, subj, ...compVals) => {
+      const row = blank();
+      row[0] = label; row[1] = subj;
+      compVals.forEach((cv, i) => {
+        if (i >= n) return;
+        if (Array.isArray(cv)) { row[3+i*2]=cv[0]; row[4+i*2]=cv[1]; }
+        else { row[4+i*2] = cv; }
+      });
+      return row;
+    };
+
+    const hdr = blank();
+    hdr[0] = 'Comparable Lease Comparables';
+    hdr[1] = 'Subject';
+    for (let i = 0; i < n; i++) hdr[3+i*2] = `Comp No. ${i+1}`;
+
+    const mergesL = [];
+    for (let i = 0; i < n; i++) mergesL.push({ s:{r:0,c:3+i*2}, e:{r:0,c:4+i*2} });
+
+    const leaseRows = [
+      hdr,                                                                            // row 1
+      blank(),                                                                         // row 2
+      mkRow('Address:', d.address||'', ...Array.from({length:n},(_,i)=>gl(i,'address'))), // row 3
+      mkRow('', (d.city||'')+', IN', ...Array.from({length:n},(_,i)=>'')),            // row 4
+      mkRow('County', d.countyName||'', ...Array.from({length:n},(_,i)=>'')),         // row 5
+      mkRow('Tenant', a.tenant||'', ...Array.from({length:n},(_,i)=>gl(i,'tenant'))), // row 6
+      mkRow('Date of Lease', '', ...Array.from({length:n},(_,i)=>gl(i,'lease date','lease_date'))), // row 7
+      mkRow('Reported Lease Rate ($/SF NNN)', '', ...Array.from({length:n},(_,i)=>   // row 8
+        gl(i,'rent/sf nnn','rent_psf','rent_per_sf')
+      )),
+      mkRow('Building Area (SF)', a.buildingSF||'', ...Array.from({length:n},(_,i)=>  // row 9
+        gl(i,'suite sf','suite_sf','building_sf')
+      )),
+      mkRow('Unadjusted Rent/SF', '', ...Array.from({length:n},(_,i)=>               // row 10
+        gl(i,'rent/sf nnn','rent_psf') || { f:`IFERROR(${vc(i)}8,"")` }
+      )),
+      blank(),                                                                         // row 11
+      (() => { const row=blank(); row[0]='Adjustments'; return row; })(),              // row 12
+      mkRow('      Building Size', a.buildingSF||'', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 13
+      mkRow('      Location / Exposure', '', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 14
+      mkRow('      Quality / Condition', '', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 15
+      mkRow('      Zoning', a.zoning||'', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 16
+      mkRow('      Parking', '', ...Array.from({length:n},(_,i)=>['Similar',0])),      // row 17
+      mkRow('      Total Adjustments', '', ...Array.from({length:n},(_,i)=>           // row 18
+        ({f:`SUM(${vc(i)}13:${vc(i)}17)`})
+      )),
+      blank(),                                                                         // row 19
+      mkRow('Final Adjusted Rent/SF', '', ...Array.from({length:n},(_,i)=>            // row 20
+        ({f:`IFERROR(ROUND(${vc(i)}10*(1+${vc(i)}18),2),"")`})
+      )),
+      blank(),                                                                         // row 21
+      (() => { const row=blank(); row[0]='For Reconciliation Purposes'; return row; })(), // row 22
+      mkRow('      Total Adjustment ($/SF)', '', ...Array.from({length:n},(_,i)=>     // row 23
+        ({f:`IFERROR(ROUND(${vc(i)}20-${vc(i)}10,2),"")`})
+      )),
+      mkRow('      Total Adjustment (% of Rent)', '', ...Array.from({length:n},(_,i)=> // row 24
+        ({f:`IFERROR(ROUND(${vc(i)}20/${vc(i)}10-1,3),"")`})
+      )),
+      blank(),
+      ['MARKET RENT CONCLUSION'],
+      ['Range of Adjusted Rents ($/SF NNN):', ''],
+      ['Concluded Market Rent ($/SF NNN):', ''],
+      ['Building SF:', ps(18)],
+      ['POTENTIAL GROSS INCOME:', { f:`IFERROR(ROUND(B29*B28,0),"")` }],
+    ];
+
+    const wsLeases = XLSX.utils.aoa_to_sheet(leaseRows);
+    wsLeases['!merges'] = mergesL;
+    wsLeases['!cols'] = [
+      {wch:31},{wch:12},{wch:3},
+      ...Array.from({length:n}, ()=>[{wch:11},{wch:11}]).flat()
+    ];
+    applyTNR(wsLeases);
+    if (wsLeases['A1']) wsLeases['A1'].s = { font:{name:'Times New Roman',sz:11,bold:true} };
+    XLSX.utils.book_append_sheet(wb, wsLeases, 'Report - Comp Leases');
+  }
+
   // ── REPORT TABLES ────────────────────────────────────────────────────────────
   // (ps and mr already defined above)
   // ps row map: B3=ResearchDate,B4=Address,B5=County,B6=MSA,B9=Parcel,B10=Owner,
@@ -1622,42 +1730,138 @@ function downloadExcel() {
   //   B44=AssessedLand,B46=TotalAV,B49=AnnualTaxes,B54=FloodZone,B55=SFHA,
   //   B56=FIRMPanel,B57=FIRMDate,B59=ListPrice,B61=Tenant,B63=LeaseExp,B66=AnnualRent,B67=CapRate
 
-  // Comp Sales Grid
+  // Comp Sales Grid — Alternating-column layout matching appraiser's "Imprvd Sales" format
   {
     const sales = costarData.sales?(Array.isArray(costarData.sales)?costarData.sales:[costarData.sales]):[];
-    const n = Math.min(sales.length||6,7);
-    const g=(i,f)=>sales[i]?resolveField(sales[i],f)||'':'';
-    addSheet('Report - Comp Sales Grid',[
-      ['COMPARABLE SALES ADJUSTMENT GRID — Read only. Adjustments on "0 - Action Items" tab.'],
-      ['',...['Subject',...Array.from({length:n},(_,i)=>`Sale ${i+1}`)]],
-      ['Address', ps(4), ...Array.from({length:n},(_,i)=>g(i,'address'))],
-      ['County',  ps(5), ...Array(n).fill('')],
-      ['Sale Date','',   ...Array.from({length:n},(_,i)=>g(i,'sale date')||g(i,'sale_date'))],
-      ['Building SF',ps(18),...Array.from({length:n},(_,i)=>g(i,'bldg sf')||g(i,'building_sf'))],
-      ['Land Area (AC)',ps(20),...Array(n).fill('')],
-      ['Year Built',ps(22),...Array(n).fill('')],
-      ['Flood Zone',ps(54),...Array(n).fill('')],
-      ['SALE PRICE','',  ...Array.from({length:n},(_,i)=>g(i,'sale price')||g(i,'sale_price'))],
-      ['Price Per SF','', ...Array.from({length:n},(_,i)=>g(i,'price/sf')||g(i,'price_per_sf'))],
-      ['Cap Rate','',    ...Array.from({length:n},(_,i)=>g(i,'cap rate')||g(i,'cap_rate'))],
-      [''],
-      ['── ADJUSTMENTS ($/SF) — enter on "0 - Action Items" tab ──'],
-      ['Property Rights','', ...Array.from({length:n},(_,i)=>adj(27,i+1))],
-      ['Financing Terms','', ...Array.from({length:n},(_,i)=>adj(28,i+1))],
-      ['Conditions of Sale','', ...Array.from({length:n},(_,i)=>adj(29,i+1))],
-      ['Market Conditions','', ...Array.from({length:n},(_,i)=>adj(30,i+1))],
-      ['Location','',    ...Array.from({length:n},(_,i)=>adj(31,i+1))],
-      ['Building Size','', ...Array.from({length:n},(_,i)=>adj(32,i+1))],
-      ['Age / Condition','', ...Array.from({length:n},(_,i)=>adj(33,i+1))],
-      ['Lease Terms','',  ...Array.from({length:n},(_,i)=>adj(34,i+1))],
-      ['Other','',        ...Array.from({length:n},(_,i)=>adj(35,i+1))],
-      [''],
-      ['VALUE CONCLUSION — SALES COMPARISON',''],
-      ['Range of Adjusted Values ($/SF):',''],
-      ['Concluded Value Per SF:',''],
-      ['Building SF:', ps(18)],
-      ['INDICATED VALUE (Rounded):', r(38)],
-    ]);
+    const n = Math.min(Math.max(sales.length, 1), 7);
+    const g = (i, ...fields) => {
+      if (!sales[i]) return '';
+      for (const f of fields) { const v = resolveField(sales[i], f); if (v) return v; }
+      return '';
+    };
+
+    // Column helpers: each comp uses 2 cols (qual-desc + numeric-value)
+    // Layout: A=labels, B=subject, C=spacer, D+E=comp1, F+G=comp2, H+I=comp3, ...
+    const vc = i => String.fromCharCode(69 + i*2);   // value col: E, G, I, K, M, O, Q
+    const qc = i => String.fromCharCode(68 + i*2);   // qual col:  D, F, H, J, L, N, P
+
+    // Build an empty row of correct width
+    const W = 3 + n*2;
+    const blank = () => Array(W).fill('');
+
+    // Row builder: puts subject in col 1, and per-comp values at value/qual positions
+    const mkRow = (label, subj, ...compVals) => {
+      const row = blank();
+      row[0] = label;
+      row[1] = subj;
+      compVals.forEach((cv, i) => {
+        if (i >= n) return;
+        if (Array.isArray(cv)) { row[3+i*2] = cv[0]; row[4+i*2] = cv[1]; }  // [qual, val]
+        else { row[4+i*2] = cv; }                                             // value only
+      });
+      return row;
+    };
+
+    // Comp header row
+    const hdr = blank();
+    hdr[0] = 'Comparable Improved Sales';
+    hdr[1] = 'Subject';
+    for (let i = 0; i < n; i++) hdr[3+i*2] = `Comp No. ${i+1}`;
+
+    // Merges: each comp header spans its qual+val cols
+    const merges = [];
+    for (let i = 0; i < n; i++) {
+      merges.push({ s:{r:0,c:3+i*2}, e:{r:0,c:4+i*2} });
+    }
+
+    // Subject fields
+    const subAddr  = d.address||'';
+    const subCity  = (d.city||'') + (d.state ? ', '+d.state : ', IN');
+    const subCo    = d.countyName||'';
+    const subSF    = a.buildingSF||'';
+    const subAC    = a.landArea||'';
+    const subFlood = (f.zone||'X')+(f.subType?'/'+f.subType:'');
+
+    const rows = [
+      hdr,                                                                          // row 1
+      blank(),                                                                       // row 2
+      mkRow('Address:', subAddr, ...Array.from({length:n},(_,i)=>g(i,'address'))), // row 3
+      mkRow('', subCity, ...Array.from({length:n},(_,i)=>'')),                      // row 4
+      mkRow('County', subCo, ...Array.from({length:n},(_,i)=>'')),                 // row 5
+      mkRow('Project Name / Tenant', a.tenant||'', ...Array.from({length:n},(_,i)=>g(i,'buyer','tenant'))), // row 6
+      blank(),                                                                       // row 7
+      mkRow('Sale Price', '', ...Array.from({length:n},(_,i)=>g(i,'sale price','sale_price'))), // row 8
+      mkRow('Building Area (SF)', subSF, ...Array.from({length:n},(_,i)=>g(i,'bldg sf','building_sf'))), // row 9
+      mkRow('Unadjusted Price/SF', '', ...Array.from({length:n},(_,i)=>           // row 10
+        g(i,'price/sf','price_per_sf') || { f: `IFERROR(ROUND(${vc(i)}8/${vc(i)}9,2),"")` }
+      )),
+      mkRow('Gross Land Area (AC)', subAC, ...Array.from({length:n},(_,i)=>'')),   // row 11
+      mkRow('Gross Land Area (SF)', subAC ? {f:`ROUND(B11*43560,0)`} : '',         // row 12
+        ...Array.from({length:n},(_,i)=>'')),
+      mkRow('Cap Rate', '', ...Array.from({length:n},(_,i)=>g(i,'cap rate','cap_rate'))), // row 13
+      mkRow('Flood Zone', subFlood, ...Array.from({length:n},(_,i)=>'')),          // row 14
+      blank(),                                                                       // row 15
+      // Adjustments (appraiser enters % as decimals in value cols; qual desc in qual col)
+      (() => { const row=mkRow('Rights Conveyed Adjustment','Fee Simple',...Array.from({length:n},(_,i)=>['Equal',0])); return row; })(), // row 16
+      mkRow('  Price Adjusted for Rights Conveyed','', ...Array.from({length:n},(_,i)=> // row 17
+        ({f:`IFERROR(ROUND(${vc(i)}10*(1+${vc(i)}16),2),"")`})
+      )),
+      (() => { const row=mkRow('Financing Adjustment','Market-typical',...Array.from({length:n},(_,i)=>['Equal',0])); return row; })(), // row 18
+      mkRow('  Price Adjusted for Financing','', ...Array.from({length:n},(_,i)=>  // row 19
+        ({f:`IFERROR(ROUND(${vc(i)}17*(1+${vc(i)}18),2),"")`})
+      )),
+      (() => { const row=mkRow("Conditions of Sale Adjustment","Arm's length",...Array.from({length:n},(_,i)=>['Equal',0])); return row; })(), // row 20
+      mkRow('  Price Adjusted for Conditions of Sale','', ...Array.from({length:n},(_,i)=> // row 21
+        ({f:`IFERROR(ROUND(${vc(i)}19*(1+${vc(i)}20),2),"")`})
+      )),
+      mkRow('Market Conditions Adjustment', d.researchDate||'', ...Array.from({length:n},(_,i)=> // row 22
+        [g(i,'sale date','sale_date'), '']
+      )),
+      mkRow('  Price Adjusted for Market Conditions','', ...Array.from({length:n},(_,i)=> // row 23
+        ({f:`IFERROR(ROUND(${vc(i)}21*(1+${vc(i)}22),2),"")`})
+      )),
+      blank(),                                                                       // row 24
+      (() => { const row=blank(); row[0]='Other Adjustments'; return row; })(),     // row 25
+      mkRow('      Building Size', subSF, ...Array.from({length:n},(_,i)=>['Similar',0])), // row 26
+      mkRow('      Location', '', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 27
+      mkRow('      Zoning', a.zoning||'', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 28
+      mkRow('      Age / Condition', a.yearBuilt?`YB ${a.yearBuilt}`:'', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 29
+      mkRow('      Tenancy / Occupancy', a.tenant||'', ...Array.from({length:n},(_,i)=>['Similar',0])), // row 30
+      mkRow('      Flood Zone', subFlood, ...Array.from({length:n},(_,i)=>['Similar',0])), // row 31
+      mkRow('      Total Other Adjustments', '', ...Array.from({length:n},(_,i)=>  // row 32
+        ({f:`SUM(${vc(i)}26:${vc(i)}31)`})
+      )),
+      blank(),                                                                       // row 33
+      mkRow('Final Adjusted Sale Price/SF', '', ...Array.from({length:n},(_,i)=>   // row 34
+        ({f:`IFERROR(ROUND(${vc(i)}23*(1+${vc(i)}32),2),"")`})
+      )),
+      blank(),                                                                       // row 35
+      (() => { const row=blank(); row[0]='For Reconciliation Purposes'; return row; })(), // row 36
+      mkRow('      Total Adjustment ($/SF)', '', ...Array.from({length:n},(_,i)=>  // row 37
+        ({f:`IFERROR(ROUND(${vc(i)}34-${vc(i)}10,2),"")`})
+      )),
+      mkRow('      Total Adjustment (% of Price)', '', ...Array.from({length:n},(_,i)=> // row 38
+        ({f:`IFERROR(ROUND(${vc(i)}34/${vc(i)}10-1,3),"")`})
+      )),
+      blank(),                                                                       // row 39
+      ['VALUE CONCLUSION — SALES COMPARISON'],                                      // row 40
+      ['Range of Adjusted Values ($/SF):', ''],                                     // row 41
+      ['Concluded Value Per SF:', ''],                                              // row 42
+      ['Building SF:', ps(18)],                                                     // row 43
+      ['INDICATED VALUE (Rounded):', r(38)],                                       // row 44
+    ];
+
+    const wsSales = XLSX.utils.aoa_to_sheet(rows);
+    wsSales['!merges'] = merges;
+    // Col widths: A=31, B=12, C=3, then n pairs of (11,11)
+    wsSales['!cols'] = [
+      {wch:31},{wch:12},{wch:3},
+      ...Array.from({length:n}, ()=>[{wch:11},{wch:11}]).flat()
+    ];
+    applyTNR(wsSales);
+    // Bold title row
+    if (wsSales['A1']) { wsSales['A1'].s = { font:{name:'Times New Roman',sz:11,bold:true} }; }
+    XLSX.utils.book_append_sheet(wb, wsSales, 'Report - Comp Sales Grid');
   }
 
   // Income Approach
