@@ -463,10 +463,11 @@ async function startResearch() {
     geoResult = await geocodeAddress(address);
     if (!geoResult) throw new Error('Address not found. Please check the address and try again.');
 
-    const {lat, lon, countyFips, cousub, matchedAddress, countyName} = geoResult;
+    const {lat, lon, countyFips, cousub, matchedAddress, countyName, city} = geoResult;
     publicData.address = matchedAddress;
     publicData.lat = lat; publicData.lon = lon;
     publicData.countyFips = countyFips; publicData.countyName = countyName;
+    publicData.city = city || '';
     publicData.researchDate = new Date().toLocaleDateString();
     const msaInfo = INDIANA_MSA[countyFips] || null;
     publicData.msaName = msaInfo ? msaInfo.name : 'Non-Metropolitan Indiana';
@@ -573,7 +574,8 @@ async function geocodeAddress(address) {
     lat: parseFloat(res.lat), lon: parseFloat(res.lon),
     countyFips: info ? info.fips : null, cousub: null,
     matchedAddress: matchedAddress || res.display_name,
-    countyName: info ? info.name : (addr.county || rawCounty)
+    countyName: info ? info.name : (addr.county || rawCounty),
+    city: addr.city || addr.town || addr.village || ''
   };
 }
 
@@ -838,13 +840,23 @@ Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull Fr
         messages:[{role:'user',content:prompt}]})
     });
     const d = await r.json();
+    // Surface API errors (bad key, out of credits, etc.)
+    if (d.error) {
+      const msg = d.error.message || d.error.type || 'Unknown API error';
+      const type = d.error.type || '';
+      let note = `API error: ${msg}`;
+      if (type === 'authentication_error') note = 'Invalid API key — check Settings';
+      if (type === 'credit_balance_exceeded' || msg.toLowerCase().includes('credit')) note = 'Out of API credits — add credits at console.anthropic.com';
+      if (type === 'rate_limit_error') note = 'API rate limit hit — wait a moment and retry';
+      return {assessor:{note}, assessorError: note};
+    }
     for (const block of (d.content||[])) {
       if (block.type==='text') {
         const m = block.text.match(/\{[\s\S]*\}/);
         if (m) { try { return {assessor:JSON.parse(m[0])}; } catch(e){} }
       }
     }
-  } catch(e){}
+  } catch(e){ return {assessor:{note:`Assessor fetch failed: ${e.message}`}, assessorError: e.message}; }
   return {assessor:{note:'Assessor lookup failed — use Indiana Gateway manually'}};
 }
 
@@ -895,9 +907,13 @@ function renderPublicData() {
       <br><a onclick="showTab('settings')">→ Click here to add your API key in Settings</a>, then click Research again.
     </div>`;
   } else if (!anyAssessorData) {
+    const errDetail = d.assessorError ? `<br><code style="font-size:11px;color:#c00">${escHtml(d.assessorError)}</code>` : '';
+    const creditHint = d.assessorError && d.assessorError.toLowerCase().includes('credit')
+      ? `<br>→ <a href="https://console.anthropic.com" target="_blank">Add credits at console.anthropic.com</a>`
+      : '';
     html += `<div class="api-key-banner" style="border-left-color:#dc3545;background:#fff5f5;">
       <strong>⚠ Property lookup returned no data</strong><br>
-      The research ran but could not retrieve property records for this address. Check the <strong>🔧 Support</strong> tab for details.
+      The research ran but could not retrieve property records for this address.${errDetail}${creditHint}
       Tax data, zoning, and listing information will need to be entered manually in Action Items.
     </div>`;
   }
