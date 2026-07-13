@@ -469,19 +469,26 @@ async function startResearch() {
     geoResult = await geocodeAddress(address);
     if (!geoResult) throw new Error('Address not found. Please check the address and try again.');
 
-    const {lat, lon, countyFips, cousub, matchedAddress, countyName, city} = geoResult;
+    const {lat, lon, countyFips, cousub, matchedAddress, countyName, city, approximate} = geoResult;
     publicData.address = matchedAddress;
     publicData.lat = lat; publicData.lon = lon;
     publicData.countyFips = countyFips; publicData.countyName = countyName;
     publicData.city = city || '';
+    publicData.approximate = !!approximate;
     publicData.researchDate = new Date().toLocaleDateString();
     const msaInfo = INDIANA_MSA[countyFips] || null;
     publicData.msaName = msaInfo ? msaInfo.name : 'Non-Metropolitan Indiana';
 
     document.getElementById('countyBadgeText').textContent =
-      countyName + (msaInfo ? ' · ' + msaInfo.name : ' · Non-Metropolitan');
+      countyName + (msaInfo ? ' · ' + msaInfo.name : ' · Non-Metropolitan')
+      + (approximate ? ' · ⚠ approximate location' : '');
     document.getElementById('countyBadge').style.display = '';
-    log('Found: ' + matchedAddress);
+    if (approximate) {
+      log('⚠ Exact rooftop not found — located by ZIP/city in ' + countyName + '.');
+      log('   County/MSA/tax data will populate; verify the exact parcel on the assessor site.');
+    } else {
+      log('Found: ' + matchedAddress);
+    }
     log('Gathering market and property data…');
 
     const [censusR, blsR, treasuryR, femaR, assessorR] = await Promise.allSettled([
@@ -495,7 +502,13 @@ async function startResearch() {
     if (censusR.status==='fulfilled') { Object.assign(publicData, censusR.value); }
     if (blsR.status==='fulfilled')    { Object.assign(publicData, blsR.value); }
     if (treasuryR.status==='fulfilled'){ Object.assign(publicData, treasuryR.value); }
-    if (femaR.status==='fulfilled')   { Object.assign(publicData, femaR.value); }
+    if (femaR.status==='fulfilled')   { Object.assign(publicData, femaR.value);
+      // At a ZIP/city centroid the flood zone is not the parcel's — flag it
+      if (publicData.approximate && publicData.fema) {
+        publicData.fema.note = 'Verify Before Report — flood zone shown is for the ZIP/city centroid, not the exact parcel. Confirm at msc.fema.gov';
+        publicData.fema.approximate = true;
+      }
+    }
     if (assessorR.status==='fulfilled'){ Object.assign(publicData, assessorR.value);
       log('Property records retrieved.');
       // Back-fill census/bls/treasury from Claude's econ data if APIs were blocked
@@ -746,6 +759,47 @@ async function nominatimReverse(lat, lon, fallbackAddress) {
            countyName:info?info.name:(ra.county||rawCounty), city };
 }
 
+// Last-resort fallback: geocode the ZIP and/or "City, IN" centroid.
+// Highway/rural rooftop addresses (e.g. "201 S State Road 135") often aren't
+// indexed by any street geocoder — but the ZIP and city always resolve, which
+// is enough to identify the county and populate all county/MSA/ZIP-level data.
+async function tryZipCity(address) {
+  const zip  = (address.match(/\b(\d{5})\b/)||[])[1] || '';
+  // Pull "City" that appears right before ", IN" / " IN " / " Indiana"
+  const cityMatch = address.match(/([A-Za-z][A-Za-z .'-]+?)[,\s]+(?:IN|Indiana)\b/i);
+  const city = cityMatch ? cityMatch[1].trim().replace(/\s+/g,' ') : '';
+
+  // Build the most specific centroid query we can
+  const queries = [];
+  if (city && zip) queries.push(`${city}, IN ${zip}`);
+  if (zip)         queries.push(`${zip}, USA`);
+  if (city)        queries.push(`${city}, Indiana, USA`);
+  if (!queries.length) return null;
+
+  for (const q of queries) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
+      const r = await fetch(url, { headers:{'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
+      const results = await r.json();
+      if (!results?.length) continue;
+      const res = results[0]; const a = res.address || {};
+      const sc = (a.state_code||'').toUpperCase(), sn = (a.state||'').toLowerCase();
+      if ((sc && sc !== 'IN') || (sn && !sn.includes('indiana'))) continue;
+      const rawCounty = (a.county||a.city_district||'').toLowerCase().replace(' county','').trim();
+      const info = INDIANA_COUNTIES[rawCounty];
+      const cityName = a.city||a.town||a.village||city||'';
+      return {
+        lat: parseFloat(res.lat), lon: parseFloat(res.lon),
+        countyFips: info ? info.fips : null, cousub: null,
+        matchedAddress: address, // keep the user's typed address as-is
+        countyName: info ? info.name : (a.county||rawCounty),
+        city: cityName, approximate: true
+      };
+    } catch(e) { /* try next query */ }
+  }
+  return null;
+}
+
 async function geocodeAddress(address) {
   const variants = addressVariants(address);
 
@@ -772,7 +826,13 @@ async function geocodeAddress(address) {
     }
   }
 
-  if (!coords) return null;
+  // 4. Last resort: ZIP / city centroid so the county is still identified
+  if (!coords) {
+    log('Exact address not indexed — locating by ZIP / city…');
+    const approx = await tryZipCity(address);
+    if (approx) return approx; // carries approximate:true
+    return null;
+  }
 
   // Got lat/lon — reverse geocode with Nominatim to get county/city
   log('Verifying location…');
