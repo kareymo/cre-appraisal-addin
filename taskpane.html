@@ -668,28 +668,72 @@ function normalizeAddress(addr) {
     .replace(/\s{2,}/g, ' ').trim();
 }
 
-// ── GEOCODER ──────────────────────────────────────────────────────────────────
+// ── GEOCODER — Nominatim first, Census TIGER fallback ────────────────────────
 async function geocodeAddress(address) {
   const normalized = normalizeAddress(address);
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalized)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
-  const r = await fetch(url, { headers: {'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
-  const results = await r.json();
-  if (!results?.length) return null;
-  const res = results[0];
-  const addr = res.address || {};
-  if (addr.state_code && addr.state_code.toUpperCase() !== 'IN')
+
+  // 1. Try Nominatim (good for city streets; weak on highway addresses)
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalized)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
+    const r = await fetch(url, { headers: {'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
+    const results = await r.json();
+    if (results?.length) {
+      const res = results[0];
+      const addr = res.address || {};
+      const stCode = (addr.state_code||'').toUpperCase();
+      const stName = (addr.state||'').toLowerCase();
+      if (stCode && stCode !== 'IN') throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
+      if (stName && !stName.includes('indiana')) throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
+      if (stCode === 'IN' || stName.includes('indiana')) {
+        const rawCounty = (addr.county || addr.city_district || '').toLowerCase().replace(' county','').trim();
+        const info = INDIANA_COUNTIES[rawCounty];
+        const city = addr.city || addr.town || addr.village || '';
+        const matchedAddress = [addr.house_number, addr.road, city, 'IN', addr.postcode].filter(Boolean).join(' ');
+        return {
+          lat: parseFloat(res.lat), lon: parseFloat(res.lon),
+          countyFips: info ? info.fips : null, cousub: null,
+          matchedAddress: matchedAddress || res.display_name,
+          countyName: info ? info.name : (addr.county || rawCounty),
+          city
+        };
+      }
+    }
+  } catch(e) { if (e.message.includes('Indiana')) throw e; }
+
+  // 2. Fallback: US Census Bureau TIGER geocoder — handles all Indiana highway addresses
+  log('Trying Census geocoder…');
+  const censusUrl = `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=${encodeURIComponent(normalized)}&benchmark=Public_AR_Current&vintage=Current_Current&layers=10&format=json`;
+  const cr = await fetch(censusUrl);
+  const cd = await cr.json();
+  const match = cd?.result?.addressMatches?.[0];
+  if (!match) return null;
+
+  const coords = match.coordinates || {};
+  const comp   = match.addressComponents || {};
+  const county = (match.geographies?.Counties||[])[0] || {};
+
+  if ((comp.state||'').toUpperCase() !== 'IN')
     throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  if (addr.state && !addr.state.toLowerCase().includes('indiana'))
-    throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  const rawCounty = (addr.county || addr.city_district || '').toLowerCase().replace(' county','').trim();
-  const info = INDIANA_COUNTIES[rawCounty];
-  const matchedAddress = [addr.house_number,addr.road,addr.city||addr.town||addr.village,addr.state_code||'IN',addr.postcode].filter(Boolean).join(' ');
+
+  // Census returns full 5-digit FIPS (18 + 3-digit county); we use the 3-digit part
+  const fullFips  = county.GEOID || '';
+  const countyFips = fullFips.length === 5 ? fullFips.slice(2) : null;
+  const countyNameRaw = (county.NAME || comp.city || '').toLowerCase().replace(' county','').trim();
+  const info = INDIANA_COUNTIES[countyNameRaw]
+    || (countyFips ? Object.values(INDIANA_COUNTIES).find(c=>c.fips===countyFips) : null);
+
+  // Build a clean matched address from Census components
+  const city = comp.city || '';
+  const matchedAddress = match.matchedAddress
+    || [comp.fromAddress, comp.preDirection, comp.streetName, comp.suffixType, city, 'IN', comp.zip].filter(Boolean).join(' ');
+
   return {
-    lat: parseFloat(res.lat), lon: parseFloat(res.lon),
-    countyFips: info ? info.fips : null, cousub: null,
-    matchedAddress: matchedAddress || res.display_name,
-    countyName: info ? info.name : (addr.county || rawCounty),
-    city: addr.city || addr.town || addr.village || ''
+    lat: parseFloat(coords.y), lon: parseFloat(coords.x),
+    countyFips: (info ? info.fips : null) || countyFips,
+    cousub: null,
+    matchedAddress,
+    countyName: info ? info.name : (county.NAME || countyNameRaw),
+    city
   };
 }
 
