@@ -704,6 +704,19 @@ function addressVariants(address) {
   return [...new Set(variants)]; // dedupe
 }
 
+// Does the TYPED address explicitly claim Indiana? (state token or Indiana ZIP)
+// Indiana ZIPs are 46000–47999. If the user says "IN 46142", that is authoritative —
+// a geocoder that maps it to another state is simply wrong, so we never hard-fail;
+// we fall back to the ZIP/city centroid instead.
+function addressClaimsIndiana(address) {
+  if (/\b(IN|Ind\.?|Indiana)\b/i.test(address)) return true;
+  const zip = (address.match(/\b(\d{5})\b/)||[])[1];
+  if (zip) { const n = +zip; if (n >= 46000 && n <= 47999) return true; }
+  return false;
+}
+
+// Each geocoder returns {inIndiana:bool, data?} — never throws for wrong-state.
+// The caller decides whether to trust or discard based on addressClaimsIndiana.
 async function tryNominatim(addr) {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
   const r = await fetch(url, { headers:{'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
@@ -711,16 +724,15 @@ async function tryNominatim(addr) {
   if (!results?.length) return null;
   const res = results[0]; const a = res.address || {};
   const sc = (a.state_code||'').toUpperCase(), sn = (a.state||'').toLowerCase();
-  if (sc && sc !== 'IN') throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  if (sn && !sn.includes('indiana')) throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  if (sc !== 'IN' && !sn.includes('indiana')) return null;
+  const inIndiana = (sc === 'IN' || sn.includes('indiana'));
   const rawCounty = (a.county||a.city_district||'').toLowerCase().replace(' county','').trim();
   const info = INDIANA_COUNTIES[rawCounty];
   const city = a.city||a.town||a.village||'';
   const matched = [a.house_number,a.road,city,'IN',a.postcode].filter(Boolean).join(' ');
-  return { lat:parseFloat(res.lat), lon:parseFloat(res.lon), countyFips:info?info.fips:null,
-           cousub:null, matchedAddress:matched||res.display_name,
-           countyName:info?info.name:(a.county||rawCounty), city, _fromReverse:false };
+  return { inIndiana, lat:parseFloat(res.lat), lon:parseFloat(res.lon),
+           countyFips:info?info.fips:null, cousub:null,
+           matchedAddress:matched||res.display_name,
+           countyName:info?info.name:(a.county||rawCounty), city };
 }
 
 async function tryCensus(addr) {
@@ -730,8 +742,8 @@ async function tryCensus(addr) {
   const m  = d?.result?.addressMatches?.[0];
   if (!m) return null;
   const st = (m.addressComponents?.state||'').toUpperCase();
-  if (st && st !== 'IN') throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  return { lat:parseFloat(m.coordinates.y), lon:parseFloat(m.coordinates.x), matchedAddress:m.matchedAddress||'' };
+  return { inIndiana: (st === 'IN'), lat:parseFloat(m.coordinates.y), lon:parseFloat(m.coordinates.x),
+           matchedAddress:m.matchedAddress||'' };
 }
 
 async function tryArcGIS(addr) {
@@ -741,16 +753,17 @@ async function tryArcGIS(addr) {
   const c  = d?.candidates?.[0];
   if (!c || c.score < 75) return null;
   const attrs = c.attributes || {};
-  if ((attrs.RegionAbbr||'').toUpperCase() !== 'IN') throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  return { lat:parseFloat(c.location.y), lon:parseFloat(c.location.x), matchedAddress:c.address||'' };
+  return { inIndiana: ((attrs.RegionAbbr||'').toUpperCase() === 'IN'),
+           lat:parseFloat(c.location.y), lon:parseFloat(c.location.x), matchedAddress:c.address||'' };
 }
 
+// Reverse geocode coordinates → county/city. Returns null (not throw) if non-Indiana.
 async function nominatimReverse(lat, lon, fallbackAddress) {
   const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
     { headers:{'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
   const d  = await r.json();
   const ra = d.address || {};
-  if ((ra.state_code||'').toUpperCase() !== 'IN') throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
+  if ((ra.state_code||'').toUpperCase() !== 'IN') return null; // wrong state → caller falls back
   const rawCounty = (ra.county||ra.city_district||'').toLowerCase().replace(' county','').trim();
   const info = INDIANA_COUNTIES[rawCounty];
   const city = ra.city||ra.town||ra.village||'';
@@ -802,41 +815,60 @@ async function tryZipCity(address) {
 
 async function geocodeAddress(address) {
   const variants = addressVariants(address);
+  const claimsIN = addressClaimsIndiana(address);
+  let sawNonIndiana = false; // track whether any geocoder confidently placed it elsewhere
 
-  // 1. Nominatim forward — try all address variants
+  const safe = async fn => { try { return await fn(); } catch(e) { return null; } };
+
+  // 1. Nominatim forward — full address detail; trust only Indiana hits
   for (const v of variants) {
-    try { const r = await tryNominatim(v); if (r) return r; }
-    catch(e) { if (e.message.includes('Indiana')) throw e; }
+    const r = await safe(() => tryNominatim(v));
+    if (!r) continue;
+    if (r.inIndiana) return r;      // rooftop-precise Indiana match
+    sawNonIndiana = true;           // matched, but elsewhere — remember, keep trying
   }
 
-  // 2. Census TIGER locations — try all variants (prefers abbreviated forms like SR-135)
+  // 2. Census TIGER locations (prefers abbreviated forms like SR-135)
   log('Trying Census geocoder…');
   let coords = null;
   for (const v of variants) {
-    try { coords = await tryCensus(v); if (coords) break; }
-    catch(e) { if (e.message.includes('Indiana')) throw e; }
+    const c = await safe(() => tryCensus(v));
+    if (!c) continue;
+    if (c.inIndiana) { coords = c; break; }
+    sawNonIndiana = true;
   }
 
   // 3. ArcGIS World Geocoding — best at US highway/rural addresses
   if (!coords) {
     log('Trying ArcGIS geocoder…');
     for (const v of variants) {
-      try { coords = await tryArcGIS(v); if (coords) break; }
-      catch(e) { if (e.message.includes('Indiana')) throw e; }
+      const c = await safe(() => tryArcGIS(v));
+      if (!c) continue;
+      if (c.inIndiana) { coords = c; break; }
+      sawNonIndiana = true;
     }
   }
 
-  // 4. Last resort: ZIP / city centroid so the county is still identified
-  if (!coords) {
-    log('Exact address not indexed — locating by ZIP / city…');
-    const approx = await tryZipCity(address);
-    if (approx) return approx; // carries approximate:true
-    return null;
+  // If we have Indiana coords, confirm county/city via reverse geocode
+  if (coords) {
+    log('Verifying location…');
+    const rev = await safe(() => nominatimReverse(coords.lat, coords.lon, coords.matchedAddress));
+    if (rev) return rev;            // confirmed Indiana
+    // reverse said non-Indiana — fall through to ZIP/city fallback below
   }
 
-  // Got lat/lon — reverse geocode with Nominatim to get county/city
-  log('Verifying location…');
-  return await nominatimReverse(coords.lat, coords.lon, coords.matchedAddress);
+  // 4. ZIP / city centroid fallback — authoritative when the address claims Indiana.
+  //    Handles highway/rural rooftops that no street geocoder indexes.
+  log('Exact address not indexed — locating by ZIP / city…');
+  const approx = await tryZipCity(address);
+  if (approx) return approx;        // carries approximate:true
+
+  // Nothing resolved to Indiana. If the typed address never claimed Indiana AND a
+  // geocoder confidently placed it in another state, it's genuinely out of scope.
+  if (sawNonIndiana && !claimsIN) {
+    throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
+  }
+  return null; // couldn't locate at all
 }
 
 // ── CENSUS ACS ────────────────────────────────────────────────────────────────
