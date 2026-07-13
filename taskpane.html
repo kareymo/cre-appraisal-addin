@@ -129,10 +129,16 @@
   </ol>
 </div>
 
-<!-- Address input -->
-<div class="d-flex gap-2 mb-2">
-  <input type="text" id="addressInput" class="form-control form-control-sm"
-    placeholder="Enter Indiana property address — e.g. 123 Main St, Indianapolis, IN 46201"/>
+<!-- Address input with autocomplete -->
+<div class="d-flex gap-2 mb-2" style="position:relative">
+  <div style="flex:1;position:relative">
+    <input type="text" id="addressInput" class="form-control form-control-sm"
+      placeholder="Start typing an Indiana address…"
+      autocomplete="off"
+      oninput="addrAutoComplete(this.value)"
+      onkeydown="addrKeyDown(event)"/>
+    <div id="addrDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.15);max-height:240px;overflow-y:auto;font-size:12px;"></div>
+  </div>
   <button class="btn btn-sm btn-primary px-3" id="btnSearch" onclick="startResearch()">Research</button>
 </div>
 
@@ -555,9 +561,117 @@ async function startResearch() {
 }
 
 
+// ── ADDRESS AUTOCOMPLETE ──────────────────────────────────────────────────────
+let _acTimer = null, _acIdx = -1, _acResults = [];
+
+async function addrAutoComplete(val) {
+  const drop = document.getElementById('addrDropdown');
+  clearTimeout(_acTimer);
+  _acIdx = -1;
+  if (!val || val.length < 3) { drop.style.display = 'none'; return; }
+  _acTimer = setTimeout(async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizeAddress(val)+', Indiana')}&format=json&addressdetails=1&limit=6&countrycodes=us`;
+      const r = await fetch(url, { headers: {'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
+      const results = await r.json();
+      // Filter to Indiana only
+      _acResults = results.filter(res => {
+        const s = (res.address||{}).state || '';
+        return s.toLowerCase().includes('indiana');
+      });
+      if (!_acResults.length) { drop.style.display = 'none'; return; }
+      drop.innerHTML = _acResults.map((res, i) => {
+        const addr = res.address || {};
+        const num   = addr.house_number || '';
+        const road  = addr.road || '';
+        const city  = addr.city || addr.town || addr.village || '';
+        const zip   = addr.postcode || '';
+        const label = [num, road, city, 'IN', zip].filter(Boolean).join(' ');
+        const sub   = res.display_name;
+        return `<div class="ac-item" data-idx="${i}"
+          style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;line-height:1.3"
+          onmouseenter="this.style.background='#f0f6ff'"
+          onmouseleave="this.style.background=''"
+          onmousedown="addrPick(${i})">
+          <div style="font-weight:500;color:#1a1a1a">${escHtml(label||sub)}</div>
+          ${label && sub !== label ? `<div style="font-size:10px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(sub)}</div>` : ''}
+        </div>`;
+      }).join('');
+      drop.style.display = 'block';
+    } catch(e) { drop.style.display = 'none'; }
+  }, 300);
+}
+
+function addrPick(idx) {
+  const res = _acResults[idx];
+  if (!res) return;
+  const addr = res.address || {};
+  const num  = addr.house_number || '';
+  const road = addr.road || '';
+  const city = addr.city || addr.town || addr.village || '';
+  const zip  = addr.postcode || '';
+  const label = [num, road, city, 'IN', zip].filter(Boolean).join(' ');
+  document.getElementById('addressInput').value = label || res.display_name;
+  document.getElementById('addrDropdown').style.display = 'none';
+  _acResults = []; _acIdx = -1;
+}
+
+function addrKeyDown(e) {
+  const drop = document.getElementById('addrDropdown');
+  const items = drop.querySelectorAll('.ac-item');
+  if (!items.length || drop.style.display === 'none') {
+    if (e.key === 'Enter') startResearch();
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _acIdx = Math.min(_acIdx + 1, items.length - 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _acIdx = Math.max(_acIdx - 1, 0);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (_acIdx >= 0) addrPick(_acIdx);
+    else { drop.style.display = 'none'; startResearch(); }
+    return;
+  } else if (e.key === 'Escape') {
+    drop.style.display = 'none'; _acIdx = -1; return;
+  }
+  items.forEach((el, i) => {
+    el.style.background = i === _acIdx ? '#e8f0fe' : '';
+  });
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('mousedown', e => {
+  if (!e.target.closest('#addrDropdown') && e.target.id !== 'addressInput')
+    document.getElementById('addrDropdown').style.display = 'none';
+});
+
+// ── ADDRESS NORMALIZER — expand Indiana highway shorthand for Nominatim ───────
+function normalizeAddress(addr) {
+  return addr
+    .replace(/\bS\.?R\.?\s*(\d+)/gi,  'State Road $1')
+    .replace(/\bIN-(\d{1,3})\b/g,      'Indiana $1')
+    .replace(/\bUS\s*(?:Hwy|Highway|Rt|Rte|Route)?\s*(\d+)/gi, 'US Highway $1')
+    .replace(/\bU\.S\.?\s*(?:Hwy|Highway|Rt|Route)?\s*(\d+)/gi, 'US Highway $1')
+    .replace(/\bI-(\d+)\b/gi,          'Interstate $1')
+    .replace(/\bHwy\b/gi,              'Highway')
+    .replace(/\bBlvd\b/gi,             'Boulevard')
+    .replace(/\bAve\b/gi,              'Avenue')
+    .replace(/\bSt\b(?!\s+\d)/gi,      'Street')
+    .replace(/\bRd\b/gi,               'Road')
+    .replace(/\bDr\b/gi,               'Drive')
+    .replace(/\bLn\b/gi,               'Lane')
+    .replace(/\bCt\b/gi,               'Court')
+    .replace(/\bPkwy\b/gi,             'Parkway')
+    .replace(/\s{2,}/g, ' ').trim();
+}
+
 // ── GEOCODER ──────────────────────────────────────────────────────────────────
 async function geocodeAddress(address) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
+  const normalized = normalizeAddress(address);
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalized)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
   const r = await fetch(url, { headers: {'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
   const results = await r.json();
   if (!results?.length) return null;
