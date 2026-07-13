@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CRE Appraisal Research</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"/>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-style@0.8.13/dist/xlsx.full.min.js"></script>
   <style>
     body { font-size: 13px; background: #f8f9fa; max-width: 960px; margin: 0 auto; padding: 10px; }
     .tab-content { padding: 10px 0; }
@@ -129,16 +129,10 @@
   </ol>
 </div>
 
-<!-- Address input with autocomplete -->
-<div class="d-flex gap-2 mb-2" style="position:relative">
-  <div style="flex:1;position:relative">
-    <input type="text" id="addressInput" class="form-control form-control-sm"
-      placeholder="Start typing an Indiana address…"
-      autocomplete="off"
-      oninput="addrAutoComplete(this.value)"
-      onkeydown="addrKeyDown(event)"/>
-    <div id="addrDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.15);max-height:240px;overflow-y:auto;font-size:12px;"></div>
-  </div>
+<!-- Address input -->
+<div class="d-flex gap-2 mb-2">
+  <input type="text" id="addressInput" class="form-control form-control-sm"
+    placeholder="Enter Indiana property address — e.g. 123 Main St, Indianapolis, IN 46201"/>
   <button class="btn btn-sm btn-primary px-3" id="btnSearch" onclick="startResearch()">Research</button>
 </div>
 
@@ -167,7 +161,7 @@
 </div>
 
 <!-- Download button -->
-<button id="downloadBtn" class="btn btn-success w-100 mb-2" onclick="downloadExcel().catch(e=>{console.error('Download error:',e);alert('Download failed: '+e.message)})" disabled>
+<button id="downloadBtn" class="btn btn-success w-100 mb-2" onclick="downloadExcel()" disabled>
   ⬇ Download Workbook
 </button>
 
@@ -469,26 +463,18 @@ async function startResearch() {
     geoResult = await geocodeAddress(address);
     if (!geoResult) throw new Error('Address not found. Please check the address and try again.');
 
-    const {lat, lon, countyFips, cousub, matchedAddress, countyName, city, approximate} = geoResult;
+    const {lat, lon, countyFips, cousub, matchedAddress, countyName} = geoResult;
     publicData.address = matchedAddress;
     publicData.lat = lat; publicData.lon = lon;
     publicData.countyFips = countyFips; publicData.countyName = countyName;
-    publicData.city = city || '';
-    publicData.approximate = !!approximate;
     publicData.researchDate = new Date().toLocaleDateString();
     const msaInfo = INDIANA_MSA[countyFips] || null;
     publicData.msaName = msaInfo ? msaInfo.name : 'Non-Metropolitan Indiana';
 
     document.getElementById('countyBadgeText').textContent =
-      countyName + (msaInfo ? ' · ' + msaInfo.name : ' · Non-Metropolitan')
-      + (approximate ? ' · ⚠ approximate location' : '');
+      countyName + (msaInfo ? ' · ' + msaInfo.name : ' · Non-Metropolitan');
     document.getElementById('countyBadge').style.display = '';
-    if (approximate) {
-      log('⚠ Exact rooftop not found — located by ZIP/city in ' + countyName + '.');
-      log('   County/MSA/tax data will populate; verify the exact parcel on the assessor site.');
-    } else {
-      log('Found: ' + matchedAddress);
-    }
+    log('Found: ' + matchedAddress);
     log('Gathering market and property data…');
 
     const [censusR, blsR, treasuryR, femaR, assessorR] = await Promise.allSettled([
@@ -502,51 +488,9 @@ async function startResearch() {
     if (censusR.status==='fulfilled') { Object.assign(publicData, censusR.value); }
     if (blsR.status==='fulfilled')    { Object.assign(publicData, blsR.value); }
     if (treasuryR.status==='fulfilled'){ Object.assign(publicData, treasuryR.value); }
-    if (femaR.status==='fulfilled')   { Object.assign(publicData, femaR.value);
-      // At a ZIP/city centroid the flood zone is not the parcel's — flag it
-      if (publicData.approximate && publicData.fema) {
-        publicData.fema.note = 'Verify Before Report — flood zone shown is for the ZIP/city centroid, not the exact parcel. Confirm at msc.fema.gov';
-        publicData.fema.approximate = true;
-      }
-    }
+    if (femaR.status==='fulfilled')   { Object.assign(publicData, femaR.value); }
     if (assessorR.status==='fulfilled'){ Object.assign(publicData, assessorR.value);
-      log('Property records retrieved.');
-      // Back-fill census/bls/treasury from Claude's econ data if APIs were blocked
-      const econ = publicData.assessor?.econ || {};
-      if (econ.countyPop || econ.countyMedianHHIncome) {
-        if (!publicData.census?.county?.pop) {
-          const toNum = s => { const n=parseFloat(String(s).replace(/[^0-9.]/g,'')); return isNaN(n)?null:n; };
-          publicData.census = publicData.census || {};
-          publicData.census.county = Object.assign(publicData.census.county||{}, {
-            pop: toNum(econ.countyPop), medHHIncome: toNum(econ.countyMedianHHIncome)
-          });
-          if (econ.countyPop || econ.countyMedianHHIncome) log('Demographics sourced via web search.');
-        }
-      }
-      // Always back-fill individual BLS fields the API didn't return
-      if (econ.msaUnemployRate && !publicData.bls?.blsMSA) {
-        const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
-        publicData.bls = publicData.bls || {};
-        publicData.bls.blsMSA = {value:toRate(econ.msaUnemployRate), period:econ.msaUnemployPeriod||''};
-      }
-      if (econ.countyUnemployRate && !publicData.bls?.blsCounty) {
-        const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
-        publicData.bls = publicData.bls || {};
-        if (econ.countyUnemployRate)   publicData.bls.blsCounty   = {value:toRate(econ.countyUnemployRate),   period:econ.countyUnemployPeriod||''};
-        if (econ.msaUnemployRate)      publicData.bls.blsMSA      = {value:toRate(econ.msaUnemployRate),      period:econ.msaUnemployPeriod||''};
-        if (econ.stateUnemployRate)    publicData.bls.blsState    = {value:toRate(econ.stateUnemployRate),    period:econ.stateUnemployPeriod||''};
-        if (econ.nationalUnemployRate) publicData.bls.blsNational = {value:toRate(econ.nationalUnemployRate), period:econ.nationalUnemployPeriod||''};
-        log('Unemployment rates sourced via web search.');
-      }
-      if (econ.treasury10yr && !publicData.treasury?.y10) {
-        publicData.treasury = publicData.treasury || {};
-        publicData.treasury.y10 = econ.treasury10yr;
-        publicData.treasury.y5  = econ.treasury5yr || '';
-        publicData.treasury.y2  = econ.treasury2yr || '';
-        publicData.treasury.date = econ.treasuryDate || new Date().toLocaleDateString();
-        log('Treasury rates sourced via web search.');
-      }
-    }
+      log('Property records retrieved.'); }
     else { log('Note: Some property data could not be retrieved automatically — see Action Items for sources.'); }
 
     // Detect property type and run INDOT if retail
@@ -581,330 +525,42 @@ async function startResearch() {
 }
 
 
-// ── ADDRESS AUTOCOMPLETE ──────────────────────────────────────────────────────
-let _acTimer = null, _acIdx = -1, _acResults = [];
-
-async function addrAutoComplete(val) {
-  const drop = document.getElementById('addrDropdown');
-  clearTimeout(_acTimer);
-  _acIdx = -1;
-  if (!val || val.length < 3) { drop.style.display = 'none'; return; }
-  _acTimer = setTimeout(async () => {
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalizeAddress(val)+', Indiana')}&format=json&addressdetails=1&limit=6&countrycodes=us`;
-      const r = await fetch(url, { headers: {'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
-      const results = await r.json();
-      // Filter to Indiana only
-      _acResults = results.filter(res => {
-        const s = (res.address||{}).state || '';
-        return s.toLowerCase().includes('indiana');
-      });
-      if (!_acResults.length) { drop.style.display = 'none'; return; }
-      drop.innerHTML = _acResults.map((res, i) => {
-        const addr = res.address || {};
-        const num   = addr.house_number || '';
-        const road  = addr.road || '';
-        const city  = addr.city || addr.town || addr.village || '';
-        const zip   = addr.postcode || '';
-        const label = [num, road, city, 'IN', zip].filter(Boolean).join(' ');
-        const sub   = res.display_name;
-        return `<div class="ac-item" data-idx="${i}"
-          style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;line-height:1.3"
-          onmouseenter="this.style.background='#f0f6ff'"
-          onmouseleave="this.style.background=''"
-          onmousedown="addrPick(${i})">
-          <div style="font-weight:500;color:#1a1a1a">${escHtml(label||sub)}</div>
-          ${label && sub !== label ? `<div style="font-size:10px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(sub)}</div>` : ''}
-        </div>`;
-      }).join('');
-      drop.style.display = 'block';
-    } catch(e) { drop.style.display = 'none'; }
-  }, 300);
-}
-
-function addrPick(idx) {
-  const res = _acResults[idx];
-  if (!res) return;
-  const addr = res.address || {};
-  const num  = addr.house_number || '';
-  const road = addr.road || '';
-  const city = addr.city || addr.town || addr.village || '';
-  const zip  = addr.postcode || '';
-  const label = [num, road, city, 'IN', zip].filter(Boolean).join(' ');
-  document.getElementById('addressInput').value = label || res.display_name;
-  document.getElementById('addrDropdown').style.display = 'none';
-  _acResults = []; _acIdx = -1;
-}
-
-function addrKeyDown(e) {
-  const drop = document.getElementById('addrDropdown');
-  const items = drop.querySelectorAll('.ac-item');
-  if (!items.length || drop.style.display === 'none') {
-    if (e.key === 'Enter') startResearch();
-    return;
-  }
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    _acIdx = Math.min(_acIdx + 1, items.length - 1);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    _acIdx = Math.max(_acIdx - 1, 0);
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    if (_acIdx >= 0) addrPick(_acIdx);
-    else { drop.style.display = 'none'; startResearch(); }
-    return;
-  } else if (e.key === 'Escape') {
-    drop.style.display = 'none'; _acIdx = -1; return;
-  }
-  items.forEach((el, i) => {
-    el.style.background = i === _acIdx ? '#e8f0fe' : '';
-  });
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('mousedown', e => {
-  if (!e.target.closest('#addrDropdown') && e.target.id !== 'addressInput')
-    document.getElementById('addrDropdown').style.display = 'none';
-});
-
-// ── ADDRESS NORMALIZER — expand Indiana highway shorthand for Nominatim ───────
-function normalizeAddress(addr) {
-  return addr
-    .replace(/\bS\.?R\.?\s*(\d+)/gi,  'State Road $1')
-    .replace(/\bIN-(\d{1,3})\b/g,      'Indiana $1')
-    .replace(/\bUS\s*(?:Hwy|Highway|Rt|Rte|Route)?\s*(\d+)/gi, 'US Highway $1')
-    .replace(/\bU\.S\.?\s*(?:Hwy|Highway|Rt|Route)?\s*(\d+)/gi, 'US Highway $1')
-    .replace(/\bI-(\d+)\b/gi,          'Interstate $1')
-    .replace(/\bHwy\b/gi,              'Highway')
-    .replace(/\bBlvd\b/gi,             'Boulevard')
-    .replace(/\bAve\b/gi,              'Avenue')
-    .replace(/\bSt\b(?!\s+\d)/gi,      'Street')
-    .replace(/\bRd\b/gi,               'Road')
-    .replace(/\bDr\b/gi,               'Drive')
-    .replace(/\bLn\b/gi,               'Lane')
-    .replace(/\bCt\b/gi,               'Court')
-    .replace(/\bPkwy\b/gi,             'Parkway')
-    .replace(/\s{2,}/g, ' ').trim();
-}
-
-// ── GEOCODER ─────────────────────────────────────────────────────────────────
-// Chain: Nominatim forward (×2 forms) → Census TIGER (×2 forms) → ArcGIS
-// On any lat/lon hit: Nominatim reverse → county/city
-// ──────────────────────────────────────────────────────────────────────────────
-
-// Build variant forms of the address to maximize geocoder hit rate
-function addressVariants(address) {
-  const norm = normalizeAddress(address);
-  // Also try an IN-XXX variant (OSM prefers this for Indiana routes)
-  const inVar = address.replace(/\bS\.?R\.?\s*(\d+)/gi, 'IN-$1')
-                       .replace(/\bState\s+Road\s+(\d+)/gi, 'IN-$1');
-  const variants = [address, norm];
-  if (inVar !== address) variants.push(inVar);
-  return [...new Set(variants)]; // dedupe
-}
-
-// Does the TYPED address explicitly claim Indiana? (state token or Indiana ZIP)
-// Indiana ZIPs are 46000–47999. If the user says "IN 46142", that is authoritative —
-// a geocoder that maps it to another state is simply wrong, so we never hard-fail;
-// we fall back to the ZIP/city centroid instead.
-function addressClaimsIndiana(address) {
-  if (/\b(IN|Ind\.?|Indiana)\b/i.test(address)) return true;
-  const zip = (address.match(/\b(\d{5})\b/)||[])[1];
-  if (zip) { const n = +zip; if (n >= 46000 && n <= 47999) return true; }
-  return false;
-}
-
-// Each geocoder returns {inIndiana:bool, data?} — never throws for wrong-state.
-// The caller decides whether to trust or discard based on addressClaimsIndiana.
-async function tryNominatim(addr) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
-  const r = await fetch(url, { headers:{'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
+// ── GEOCODER ──────────────────────────────────────────────────────────────────
+async function geocodeAddress(address) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
+  const r = await fetch(url, { headers: {'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
   const results = await r.json();
   if (!results?.length) return null;
-  const res = results[0]; const a = res.address || {};
-  const sc = (a.state_code||'').toUpperCase(), sn = (a.state||'').toLowerCase();
-  const inIndiana = (sc === 'IN' || sn.includes('indiana'));
-  const rawCounty = (a.county||a.city_district||'').toLowerCase().replace(' county','').trim();
-  const info = INDIANA_COUNTIES[rawCounty];
-  const city = a.city||a.town||a.village||'';
-  const matched = [a.house_number,a.road,city,'IN',a.postcode].filter(Boolean).join(' ');
-  return { inIndiana, lat:parseFloat(res.lat), lon:parseFloat(res.lon),
-           countyFips:info?info.fips:null, cousub:null,
-           matchedAddress:matched||res.display_name,
-           countyName:info?info.name:(a.county||rawCounty), city };
-}
-
-async function tryCensus(addr) {
-  const cu = `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(addr)}&benchmark=Public_AR_Current&format=json`;
-  const r  = await fetch(cu);
-  const d  = await r.json();
-  const m  = d?.result?.addressMatches?.[0];
-  if (!m) return null;
-  const st = (m.addressComponents?.state||'').toUpperCase();
-  return { inIndiana: (st === 'IN'), lat:parseFloat(m.coordinates.y), lon:parseFloat(m.coordinates.x),
-           matchedAddress:m.matchedAddress||'' };
-}
-
-async function tryArcGIS(addr) {
-  const au = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(addr)}&f=json&sourceCountry=USA&maxLocations=1&outFields=StAddr,City,RegionAbbr`;
-  const r  = await fetch(au);
-  const d  = await r.json();
-  const c  = d?.candidates?.[0];
-  if (!c || c.score < 75) return null;
-  const attrs = c.attributes || {};
-  return { inIndiana: ((attrs.RegionAbbr||'').toUpperCase() === 'IN'),
-           lat:parseFloat(c.location.y), lon:parseFloat(c.location.x), matchedAddress:c.address||'' };
-}
-
-// Reverse geocode coordinates → county/city. Returns null (not throw) if non-Indiana.
-async function nominatimReverse(lat, lon, fallbackAddress) {
-  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
-    { headers:{'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
-  const d  = await r.json();
-  const ra = d.address || {};
-  if ((ra.state_code||'').toUpperCase() !== 'IN') return null; // wrong state → caller falls back
-  const rawCounty = (ra.county||ra.city_district||'').toLowerCase().replace(' county','').trim();
-  const info = INDIANA_COUNTIES[rawCounty];
-  const city = ra.city||ra.town||ra.village||'';
-  return { lat, lon, countyFips:info?info.fips:null, cousub:null,
-           matchedAddress:fallbackAddress||`${lat}, ${lon}`,
-           countyName:info?info.name:(ra.county||rawCounty), city };
-}
-
-// Last-resort fallback: geocode the ZIP and/or "City, IN" centroid.
-// Highway/rural rooftop addresses (e.g. "201 S State Road 135") often aren't
-// indexed by any street geocoder — but the ZIP and city always resolve, which
-// is enough to identify the county and populate all county/MSA/ZIP-level data.
-async function tryZipCity(address) {
-  const zip  = (address.match(/\b(\d{5})\b/)||[])[1] || '';
-  // Pull "City" that appears right before ", IN" / " IN " / " Indiana"
-  const cityMatch = address.match(/([A-Za-z][A-Za-z .'-]+?)[,\s]+(?:IN|Indiana)\b/i);
-  const city = cityMatch ? cityMatch[1].trim().replace(/\s+/g,' ') : '';
-
-  // Build the most specific centroid query we can
-  const queries = [];
-  if (city && zip) queries.push(`${city}, IN ${zip}`);
-  if (zip)         queries.push(`${zip}, USA`);
-  if (city)        queries.push(`${city}, Indiana, USA`);
-  if (!queries.length) return null;
-
-  for (const q of queries) {
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=1&countrycodes=us`;
-      const r = await fetch(url, { headers:{'Accept-Language':'en-US,en','User-Agent':'CRE-Appraisal-Research/4.0'} });
-      const results = await r.json();
-      if (!results?.length) continue;
-      const res = results[0]; const a = res.address || {};
-      const sc = (a.state_code||'').toUpperCase(), sn = (a.state||'').toLowerCase();
-      if ((sc && sc !== 'IN') || (sn && !sn.includes('indiana'))) continue;
-      const rawCounty = (a.county||a.city_district||'').toLowerCase().replace(' county','').trim();
-      const info = INDIANA_COUNTIES[rawCounty];
-      const cityName = a.city||a.town||a.village||city||'';
-      return {
-        lat: parseFloat(res.lat), lon: parseFloat(res.lon),
-        countyFips: info ? info.fips : null, cousub: null,
-        matchedAddress: address, // keep the user's typed address as-is
-        countyName: info ? info.name : (a.county||rawCounty),
-        city: cityName, approximate: true
-      };
-    } catch(e) { /* try next query */ }
-  }
-  return null;
-}
-
-async function geocodeAddress(address) {
-  const variants = addressVariants(address);
-  const claimsIN = addressClaimsIndiana(address);
-  let sawNonIndiana = false; // track whether any geocoder confidently placed it elsewhere
-
-  const safe = async fn => { try { return await fn(); } catch(e) { return null; } };
-
-  // 1. Nominatim forward — full address detail; trust only Indiana hits
-  for (const v of variants) {
-    const r = await safe(() => tryNominatim(v));
-    if (!r) continue;
-    if (r.inIndiana) return r;      // rooftop-precise Indiana match
-    sawNonIndiana = true;           // matched, but elsewhere — remember, keep trying
-  }
-
-  // 2. Census TIGER locations (prefers abbreviated forms like SR-135)
-  log('Trying Census geocoder…');
-  let coords = null;
-  for (const v of variants) {
-    const c = await safe(() => tryCensus(v));
-    if (!c) continue;
-    if (c.inIndiana) { coords = c; break; }
-    sawNonIndiana = true;
-  }
-
-  // 3. ArcGIS World Geocoding — best at US highway/rural addresses
-  if (!coords) {
-    log('Trying ArcGIS geocoder…');
-    for (const v of variants) {
-      const c = await safe(() => tryArcGIS(v));
-      if (!c) continue;
-      if (c.inIndiana) { coords = c; break; }
-      sawNonIndiana = true;
-    }
-  }
-
-  // If we have Indiana coords, confirm county/city via reverse geocode
-  if (coords) {
-    log('Verifying location…');
-    const rev = await safe(() => nominatimReverse(coords.lat, coords.lon, coords.matchedAddress));
-    if (rev) return rev;            // confirmed Indiana
-    // reverse said non-Indiana — fall through to ZIP/city fallback below
-  }
-
-  // 4. ZIP / city centroid fallback — authoritative when the address claims Indiana.
-  //    Handles highway/rural rooftops that no street geocoder indexes.
-  log('Exact address not indexed — locating by ZIP / city…');
-  const approx = await tryZipCity(address);
-  if (approx) return approx;        // carries approximate:true
-
-  // Nothing resolved to Indiana. If the typed address never claimed Indiana AND a
-  // geocoder confidently placed it in another state, it's genuinely out of scope.
-  if (sawNonIndiana && !claimsIN) {
+  const res = results[0];
+  const addr = res.address || {};
+  if (addr.state_code && addr.state_code.toUpperCase() !== 'IN')
     throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
-  }
-  return null; // couldn't locate at all
+  if (addr.state && !addr.state.toLowerCase().includes('indiana'))
+    throw new Error('Address is not in Indiana. This tool covers Indiana properties only.');
+  const rawCounty = (addr.county || addr.city_district || '').toLowerCase().replace(' county','').trim();
+  const info = INDIANA_COUNTIES[rawCounty];
+  const matchedAddress = [addr.house_number,addr.road,addr.city||addr.town||addr.village,addr.state_code||'IN',addr.postcode].filter(Boolean).join(' ');
+  return {
+    lat: parseFloat(res.lat), lon: parseFloat(res.lon),
+    countyFips: info ? info.fips : null, cousub: null,
+    matchedAddress: matchedAddress || res.display_name,
+    countyName: info ? info.name : (addr.county || rawCounty)
+  };
 }
 
 // ── CENSUS ACS ────────────────────────────────────────────────────────────────
 async function fetchCensusACS(countyFips, cousub) {
   if (!countyFips) return { census: {} };
+  const BASE = 'https://api.census.gov/data/2023/acs/acs5';
   const VARS = 'NAME,B01003_001E,B19013_001E,B25064_001E,B23025_003E,B23025_005E';
-
-  // Fetch with timeout — Census API is free/unkeyed and can hang
-  async function sf(url, timeoutMs=8000) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
-      const r = await fetch(url, {signal:ctrl.signal});
-      clearTimeout(timer);
-      if (!r.ok) return null;
-      return await r.json();
-    } catch(e) { return null; }
+  async function sf(url) {
+    try { const r=await fetch(url); if(!r.ok) return null; return await r.json(); } catch(e){ return null; }
   }
-
-  // Try most-recent year first, fall back one year if it fails
-  async function tryYear(yr) {
-    const BASE = `https://api.census.gov/data/${yr}/acs/acs5`;
-    const [countyRes,stateRes,natRes] = await Promise.all([
-      sf(`${BASE}?get=${VARS}&for=county:${countyFips}&in=state:18`),
-      sf(`${BASE}?get=${VARS}&for=state:18`),
-      sf(`${BASE}?get=${VARS}&for=us:1`)
-    ]);
-    return [countyRes,stateRes,natRes];
-  }
-
-  let [countyRes,stateRes,natRes] = await tryYear(2023);
-  // If county call failed, try 2022 vintage
-  if (!countyRes && !stateRes) {
-    [countyRes,stateRes,natRes] = await tryYear(2022);
-  }
-
+  const [countyRes,stateRes,natRes] = await Promise.all([
+    sf(`${BASE}?get=${VARS}&for=county:${countyFips}&in=state:18`),
+    sf(`${BASE}?get=${VARS}&for=state:18`),
+    sf(`${BASE}?get=${VARS}&for=us:1`)
+  ]);
   function parse(rows) {
     if (!rows||rows.length<2) return null;
     const r=rows[1];
@@ -923,7 +579,7 @@ async function fetchBLS(countyFips, msaInfo) {
   try {
     const r = await fetch('https://api.bls.gov/publicAPI/v2/timeseries/data/',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({seriesid:series,startyear:'2024',endyear:'2026'})
+      body:JSON.stringify({seriesid:series,startyear:'2023',endyear:'2025'})
     });
     const d = await r.json();
     const out = {};
@@ -955,9 +611,7 @@ async function fetchTreasury() {
     const lines = text.trim().split('\n').filter(l=>l.trim());
     if (lines.length >= 2) {
       const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
-      // Treasury CSV is newest-first; line[1] is the most recent trading day.
-      // lines[lines.length-1] would be Jan 2 — the oldest date in the file.
-      const last = lines[1].split(',').map(v=>v.replace(/"/g,'').trim());
+      const last = lines[lines.length-1].split(',').map(v=>v.replace(/"/g,'').trim());
       const obj = {}; headers.forEach((h,i)=>obj[h]=last[i]);
       const g = k => { const mk=Object.keys(obj).find(k2=>k2.toLowerCase().includes(k.toLowerCase())); return mk?obj[mk]:null; };
       result.date = obj[Object.keys(obj)[0]] || result.date;
@@ -1040,7 +694,7 @@ ${isMarion
   ? `Search https://assessor.indy.gov — enter "${matchedAddress}". Click the parcel to open the FULL detail page.`
   : `Search https://gateway.ifionline.org/assessedValue/ — select county "${countyName.replace(' County','')}", search by address. Click the parcel link.`
 }
-Extract: parcel number, owner name (full legal name), ownership entity type (LLC/Corp/Individual/Trust), property type/classification code, property subtype, occupancy status (Occupied/Vacant/Partially Occupied), owner-occupied indicator, building gross area SF, rentable SF (= TOTAL rentable/leasable area of the entire building — NOT the vacant or available portion; for a multi-tenant building this is the full leasable SF, not one suite), land area (acres AND sq ft), year built, year renovated, number of buildings, number of stories, construction type (masonry/frame/steel/concrete), exterior walls, roof type, HVAC, condition, utilities available, access description.
+Extract: parcel number, owner name (full legal name), ownership entity type (LLC/Corp/Individual/Trust), property type/classification code, property subtype, occupancy status (Occupied/Vacant/Partially Occupied), owner-occupied indicator, building gross area SF, rentable SF, land area (acres AND sq ft), year built, year renovated, number of buildings, number of stories, construction type (masonry/frame/steel/concrete), exterior walls, roof type, HVAC, condition, utilities available, access description.
 
 ━━━ SEARCH 2: ASSESSED VALUES + TAX DISTRICT + TIF ━━━
 On the parcel page from Search 1, find the Assessment Values section/tab. You MUST find THREE separate values:
@@ -1080,11 +734,6 @@ For multi-tenant: extract FULL rent roll — all tenants with suite, SF, rent, l
 ━━━ SEARCH 8: FOLLOW-UP ━━━
 Search Google for the parcel number found in Search 1. Look for additional public records, TIF district confirmation, news about the property, or additional data sources.
 
-━━━ SEARCH 9: DEMOGRAPHICS, UNEMPLOYMENT & TREASURY RATES ━━━
-A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income.
-B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "${msaInfo?.name||'Indianapolis'} MSA unemployment rate", "Indiana unemployment rate", and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025") for all four: county, MSA, state, national.
-C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate current" — get the current 10-year Treasury yield. Also get the 5-year and 2-year yields if available.
-
 ━━━ OUTPUT — Return ONLY this JSON, no markdown: ━━━
 {
   "parcelNumber":"","propertyType":"","propertySubtype":"","propertyClass":"",
@@ -1114,44 +763,26 @@ C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate curr
   "transferHistory":[],
   "salesHistory":[],
   "taxHistory":[],
-  "econ":{
-    "countyPop":"","countyMedianHHIncome":"",
-    "countyUnemployRate":"","countyUnemployPeriod":"",
-    "msaUnemployRate":"","msaUnemployPeriod":"",
-    "stateUnemployRate":"","stateUnemployPeriod":"",
-    "nationalUnemployRate":"","nationalUnemployPeriod":"",
-    "treasury10yr":"","treasury5yr":"","treasury2yr":"","treasuryDate":""
-  },
   "notes":""
 }
-Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}]. For econ fields use plain numbers/strings like "4.2" or "4.2% — Apr 2025".`;
+Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}].`;
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','content-type':'application/json'},
       body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:4000,
-        tools:[{name:'web_search',type:'web_search_20250305',max_uses:12}],
+        tools:[{name:'web_search',type:'web_search_20250305',max_uses:8}],
         messages:[{role:'user',content:prompt}]})
     });
     const d = await r.json();
-    // Surface API errors (bad key, out of credits, etc.)
-    if (d.error) {
-      const msg = d.error.message || d.error.type || 'Unknown API error';
-      const type = d.error.type || '';
-      let note = `API error: ${msg}`;
-      if (type === 'authentication_error') note = 'Invalid API key — check Settings';
-      if (type === 'credit_balance_exceeded' || msg.toLowerCase().includes('credit')) note = 'Out of API credits — add credits at console.anthropic.com';
-      if (type === 'rate_limit_error') note = 'API rate limit hit — wait a moment and retry';
-      return {assessor:{note}, assessorError: note};
-    }
     for (const block of (d.content||[])) {
       if (block.type==='text') {
         const m = block.text.match(/\{[\s\S]*\}/);
         if (m) { try { return {assessor:JSON.parse(m[0])}; } catch(e){} }
       }
     }
-  } catch(e){ return {assessor:{note:`Assessor fetch failed: ${e.message}`}, assessorError: e.message}; }
+  } catch(e){}
   return {assessor:{note:'Assessor lookup failed — use Indiana Gateway manually'}};
 }
 
@@ -1202,13 +833,9 @@ function renderPublicData() {
       <br><a onclick="showTab('settings')">→ Click here to add your API key in Settings</a>, then click Research again.
     </div>`;
   } else if (!anyAssessorData) {
-    const errDetail = d.assessorError ? `<br><code style="font-size:11px;color:#c00">${escHtml(d.assessorError)}</code>` : '';
-    const creditHint = d.assessorError && d.assessorError.toLowerCase().includes('credit')
-      ? `<br>→ <a href="https://console.anthropic.com" target="_blank">Add credits at console.anthropic.com</a>`
-      : '';
     html += `<div class="api-key-banner" style="border-left-color:#dc3545;background:#fff5f5;">
       <strong>⚠ Property lookup returned no data</strong><br>
-      The research ran but could not retrieve property records for this address.${errDetail}${creditHint}
+      The research ran but could not retrieve property records for this address. Check the <strong>🔧 Support</strong> tab for details.
       Tax data, zoning, and listing information will need to be entered manually in Action Items.
     </div>`;
   }
@@ -1556,7 +1183,7 @@ function resolveField(item, header) {
 }
 
 // ── DOWNLOAD EXCEL ────────────────────────────────────────────────────────────
-async function downloadExcel() {
+function downloadExcel() {
   const wb = XLSX.utils.book_new();
   const d = publicData, a = d.assessor||{}, c = d.census||{}, bls = d.bls||{},
         t = d.treasury||{}, f = d.fema||{}, indot = d.indot||{};
@@ -1767,151 +1394,6 @@ async function downloadExcel() {
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
   }
 
-  // ── DAD'S TEMPLATE SHEETS (17 sheets, exact format) ─────────────────────────
-  {
-    let templateWb = null;
-    try {
-      const resp = await fetch('./cre_template.xlsx');
-      if (resp.ok) {
-        const arrBuf = await resp.arrayBuffer();
-        templateWb = XLSX.read(new Uint8Array(arrBuf), {type:'array', cellStyles:true});
-      } else {
-        console.warn('Template fetch HTTP', resp.status);
-      }
-    } catch(e) { console.warn('Template fetch failed:', e); }
-
-    if (templateWb) {
-      // Helper: safe number — strips commas first (AI often returns "15,437"), then parses
-      const safeNum = v => { const n = parseFloat(String(v).replace(/,/g,'')); return (isFinite(n) && !isNaN(n)) ? n : ''; };
-      // City fallback: parse from address if geocoder didn't return city separately
-      const cityVal = d.city || (d.address ? (d.address.match(/,?\s*([A-Za-z\s]+),?\s*IN\b/i)||[])[1]?.trim() : '') || '';
-
-      // Map AUTO: marker → actual researched value
-      const autoMap = {
-        'AUTO:address':               d.address||'',
-        'AUTO:citystate':             cityVal ? cityVal+', IN' : '',
-        'AUTO:county':                d.countyName||'',
-        'AUTO:township':              a.township||d.township||'',
-        'AUTO:tenant':                a.tenant||'',
-        'AUTO:buildingSF':            safeNum(a.buildingSF),
-        'AUTO:landAC':                safeNum(a.landArea),
-        'AUTO:effectivedate':         d.researchDate||new Date().toLocaleDateString(),
-        'AUTO:zoning':                a.zoning||'',
-        'AUTO:floodZone':             (f.zone||'X')+(f.subType?'/'+f.subType:''),
-        'AUTO:ownerofrecord':         a.currentOwner||'',
-        'AUTO:parcelnumber':          a.parcelNumber||'',
-        'AUTO:taxdistrict':           a.taxDistrict||'',
-        'AUTO:dateoflastassessment':  a.assessedValueYear ? 'March 1, '+a.assessedValueYear : '',
-        'AUTO:landsize':              a.landAreaSF ? a.landAreaSF+' SF' : (a.landArea ? a.landArea+' AC' : ''),
-        'AUTO:buildingsize':          a.buildingSF ? a.buildingSF+' SF' : '',
-      };
-
-      for (const shName of templateWb.SheetNames) {
-        const ws = templateWb.Sheets[shName];
-        if (!ws) continue;
-
-        // Replace AUTO: and [bracket] placeholder cells
-        // AUTO: markers → exact values from autoMap
-        // [MSA Name] / [County] → real names (template uses these as row labels in EBI/IN MSA)
-        if (ws['!ref']) {
-          const range = XLSX.utils.decode_range(ws['!ref']);
-          for (let R = range.s.r; R <= range.e.r; R++) {
-            for (let C = range.s.c; C <= range.e.c; C++) {
-              const addr = XLSX.utils.encode_cell({r:R, c:C});
-              const cell = ws[addr];
-              if (!cell) continue;
-              const v = cell.v;
-              if (typeof v !== 'string') continue;
-
-              // AUTO: markers
-              if (v.startsWith('AUTO:')) {
-                const rep = autoMap[v];
-                const val = (rep !== undefined && rep !== '') ? rep : '';
-                ws[addr] = Object.assign({}, cell, {
-                  t: (typeof val === 'number') ? 'n' : 's',
-                  v: val, w: String(val)
-                });
-                delete ws[addr].f;
-              }
-
-              // Bracket placeholders — replace label text only (preserves data cells)
-              else if (v === '[MSA Name]') {
-                const msaN = d.msaName || 'Indianapolis-Carmel-Anderson, IN';
-                ws[addr] = Object.assign({}, cell, {t:'s', v:msaN, w:msaN});
-              }
-              else if (v === '[County]') {
-                const coN = d.countyName || 'County';
-                ws[addr] = Object.assign({}, cell, {t:'s', v:coN, w:coN});
-              }
-              else if (v.includes('[MSA Name]') || v.includes('[County]')) {
-                const sub = v
-                  .replace(/\[MSA Name\]/g, d.msaName||'Indianapolis-Carmel-Anderson, IN')
-                  .replace(/\[County\]/g,   d.countyName||'County');
-                ws[addr] = Object.assign({}, cell, {t:'s', v:sub, w:sub});
-              }
-            }
-          }
-        }
-
-        // Write subject Building SF into Imprvd Sales subject column (B9)
-        // The template leaves this blank; we fill it from assessor data.
-        // Must strip commas before parsing — "15,437" → NaN with plain +
-        if (shName === 'Imprvd Sales' && a.buildingSF) {
-          const sfN = parseFloat(String(a.buildingSF).replace(/,/g,''));
-          if (!isNaN(sfN) && isFinite(sfN)) {
-            const sfAddr = XLSX.utils.encode_cell({r:8, c:1}); // row 9, col B
-            ws[sfAddr] = Object.assign({}, ws[sfAddr]||{}, {t:'n', v:sfN, w:String(sfN)});
-          }
-        }
-
-        // Clear stale CoStar data from Location sheet — preserve structural labels only
-        if (shName === 'Location' && ws['!ref']) {
-          const LOCATION_LABELS = new Set([
-            'Name','Address','City','State',
-            '1 Mile Population','M HH Income','1 Mile HH Income',
-            '3 Mile Population','3 Mile HH Income','Vehicles Per Day',
-            'Sales','Lease','Land'
-          ]);
-          const rng = XLSX.utils.decode_range(ws['!ref']);
-          for (let R = rng.s.r; R <= rng.e.r; R++) {
-            for (let C = rng.s.c; C <= rng.e.c; C++) {
-              const ca = XLSX.utils.encode_cell({r:R, c:C});
-              const cell = ws[ca];
-              if (!cell || cell.f) continue; // skip missing or formula cells
-              const v = cell.v;
-              if (v !== undefined && v !== null && v !== '') {
-                if (!LOCATION_LABELS.has(String(v).trim())) {
-                  ws[ca] = Object.assign({}, cell, {v:'', w:'', t:'s'});
-                }
-              }
-            }
-          }
-        }
-
-        // Pre-populate comp data if CoStar data is available
-        if (shName === 'Imprvd Sales')  tplPopulateSales(ws,  costarData.sales);
-        if (shName === 'LeaseComps')    tplPopulateLeases(ws, costarData.leases);
-
-        // IN MSA sheet: write Indiana and US median HH income for 2023 (col K = c=10)
-        // Rows: Indiana = r=5, United States = r=6 (0-indexed, matching template structure)
-        if (shName === 'IN MSA') {
-          const wn = (r, cv, v) => {
-            if (!v) return;
-            const n = parseFloat(String(v).replace(/,/g,''));
-            if (!isNaN(n) && isFinite(n)) {
-              const ca = XLSX.utils.encode_cell({r, c:cv});
-              ws[ca] = Object.assign({}, ws[ca]||{}, {t:'n', v:n, w:String(n)});
-            }
-          };
-          wn(5, 10, st?.medHHIncome);  // Indiana 2023 (col K)
-          wn(6, 10, nat?.medHHIncome); // US 2023 (col K)
-        }
-
-        XLSX.utils.book_append_sheet(wb, ws, shName);
-      }
-    }
-  }
-
   // ── PROPERTY SUMMARY ────────────────────────────────────────────────────────
   {
     const rows = [
@@ -1933,20 +1415,7 @@ async function downloadExcel() {
       ['Owner Occupied', a.ownerOccupied||NVstr],
       ['Occupancy %', a.occupancyPct||NVstr],
       ['Building Area (SF)', a.buildingSF||NVstr],
-      // Guard: AI sometimes returns the vacant/available suite SF instead of
-      // total rentable area, sometimes as a descriptive string like
-      // "5,864 SF currently available (Suite B)". Detect either case and fall
-      // back to buildingSF when the value looks like a partial/available area.
-      ['Rentable Area (SF)', (() => {
-        const raw = String(a.rentableSF||'');
-        const b   = parseFloat(String(a.buildingSF||'').replace(/,/g,''));
-        // Strip commas to parse the leading number out of any string
-        const r   = parseFloat(raw.replace(/,/g,''));
-        const looksPartial = /available|vacant|suite|currently/i.test(raw);
-        if (a.rentableSF && looksPartial && isFinite(b)) return b;
-        if (a.rentableSF && isFinite(r) && isFinite(b) && b > 0 && r < b * 0.6) return b;
-        return a.rentableSF||NVstr;
-      })()],
+      ['Rentable Area (SF)', a.rentableSF||NVstr],
       ['Land Area (Acres)', va('Land Area (Acres)',a.landArea)],
       ['Land Area (SF)', a.landAreaSF||NVstr],
       ['Year Built', va('Year Built',a.yearBuilt)],
@@ -2163,9 +1632,8 @@ async function downloadExcel() {
     ]);
   }
 
-  // (Comp Leases, Comp Sales Grid, Income Approach, Reconciliation now come from cre_template.xlsx above)
-
-  if (false) { // ── legacy generated sheets — preserved for fallback reference only ──
+  // ── COMP LEASES — alternating-column format matching appraiser's LeaseComps ──
+  {
     const leases = costarData.leases?(Array.isArray(costarData.leases)?costarData.leases:[costarData.leases]):[];
     const n = Math.min(Math.max(leases.length,1), 9);
     const gl = (i,...fields) => {
@@ -2483,55 +1951,6 @@ async function downloadExcel() {
   const safeName = (d.address||'Property').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_').slice(0,40);
   setWorkflowStep(5);
   XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`);
-}
-
-
-// ── TEMPLATE COMP POPULATION HELPERS ─────────────────────────────────────────
-// Pre-fill Imprvd Sales comp columns from CoStar sales paste-in
-function tplPopulateSales(ws, salesData) {
-  if (!salesData) return;
-  const sales = Array.isArray(salesData) ? salesData : [salesData];
-  // Qual/val column 0-based index pairs matching dad's format:
-  // D/E, F/G, H/I, J/K, L/M, N/O, P/Q, (R=spacer), S/T, U/V, W/X, Y/Z, AA/AB, (AC/AD gap), AE/AF, AG/AH, AI/AJ, AK/AL
-  const qci = [3,5,7,9,11,13,15, 18,20,22,24,26, 30,32,34,36];
-  const vci = [4,6,8,10,12,14,16, 19,21,23,25,27, 31,33,35,37];
-  const g = (s,...ff) => { for(const f of ff){const v=resolveField(s,f);if(v)return v;} return ''; };
-  const ss = (c,r,v) => { if(!v)return; ws[XLSX.utils.encode_cell({r,c})]={t:'s',v:String(v),w:String(v)}; };
-  const sn = (c,r,v) => { const n=parseFloat(String(v).replace(/[,$\s]/g,'')); if(isNaN(n))return; ws[XLSX.utils.encode_cell({r,c})]={t:'n',v:n,w:String(n)}; };
-  sales.slice(0,16).forEach((sale,i) => {
-    const qc=qci[i], vc=vci[i]; if(qc===undefined)return;
-    ss(qc, 2, g(sale,'address'));
-    ss(qc, 3, g(sale,'city'));
-    ss(qc, 4, g(sale,'county'));
-    ss(qc, 5, g(sale,'township'));
-    ss(qc, 6, g(sale,'buyer','tenant','project name','project_name'));
-    sn(vc, 7, g(sale,'sale price','sale_price'));
-    sn(vc, 8, g(sale,'bldg sf','building_sf','building sf'));
-    sn(vc,10, g(sale,'land ac','land acres','land_ac'));
-    ss(qc,23, g(sale,'sale date','sale_date'));  // row 24 = market conditions date
-  });
-}
-
-// Pre-fill LeaseComps comp columns from CoStar lease paste-in
-function tplPopulateLeases(ws, leasesData) {
-  if (!leasesData) return;
-  const leases = Array.isArray(leasesData) ? leasesData : [leasesData];
-  // D/E, F/G, H/I, J/K, L/M, [N=avg col skip], O/P, Q/R, S/T, U/V, W/X, Y/Z
-  const qci = [3,5,7,9,11, 14,16,18,20,22,24];
-  const vci = [4,6,8,10,12, 15,17,19,21,23,25];
-  const g = (s,...ff) => { for(const f of ff){const v=resolveField(s,f);if(v)return v;} return ''; };
-  const ss = (c,r,v) => { if(!v)return; ws[XLSX.utils.encode_cell({r,c})]={t:'s',v:String(v),w:String(v)}; };
-  const sn = (c,r,v) => { const n=parseFloat(String(v).replace(/[,$\s]/g,'')); if(isNaN(n))return; ws[XLSX.utils.encode_cell({r,c})]={t:'n',v:n,w:String(n)}; };
-  leases.slice(0,11).forEach((lease,i) => {
-    const qc=qci[i], vc=vci[i]; if(qc===undefined)return;
-    ss(qc, 2, g(lease,'address'));
-    ss(qc, 3, g(lease,'city'));
-    ss(qc, 4, g(lease,'county'));
-    ss(qc, 5, g(lease,'tenant','name'));
-    ss(qc, 6, g(lease,'lease date','sale_date','date'));
-    sn(vc, 7, g(lease,'rent/sf nnn','rent_psf','asking rent','rent per sf'));
-    sn(vc, 8, g(lease,'suite sf','bldg sf','building sf'));
-  });
 }
 
 
