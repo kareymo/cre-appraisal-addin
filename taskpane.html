@@ -939,7 +939,7 @@ ${isMarion
   ? `Search https://assessor.indy.gov — enter "${matchedAddress}". Click the parcel to open the FULL detail page.`
   : `Search https://gateway.ifionline.org/assessedValue/ — select county "${countyName.replace(' County','')}", search by address. Click the parcel link.`
 }
-Extract: parcel number, owner name (full legal name), ownership entity type (LLC/Corp/Individual/Trust), property type/classification code, property subtype, occupancy status (Occupied/Vacant/Partially Occupied), owner-occupied indicator, building gross area SF, rentable SF, land area (acres AND sq ft), year built, year renovated, number of buildings, number of stories, construction type (masonry/frame/steel/concrete), exterior walls, roof type, HVAC, condition, utilities available, access description.
+Extract: parcel number, owner name (full legal name), ownership entity type (LLC/Corp/Individual/Trust), property type/classification code, property subtype, occupancy status (Occupied/Vacant/Partially Occupied), owner-occupied indicator, building gross area SF, rentable SF (= TOTAL rentable/leasable area of the entire building — NOT the vacant or available portion; for a multi-tenant building this is the full leasable SF, not one suite), land area (acres AND sq ft), year built, year renovated, number of buildings, number of stories, construction type (masonry/frame/steel/concrete), exterior walls, roof type, HVAC, condition, utilities available, access description.
 
 ━━━ SEARCH 2: ASSESSED VALUES + TAX DISTRICT + TIF ━━━
 On the parcel page from Search 1, find the Assessment Values section/tab. You MUST find THREE separate values:
@@ -1731,6 +1731,40 @@ async function downloadExcel() {
           }
         }
 
+        // Write subject Building SF into Imprvd Sales subject column (B9)
+        // The template leaves this blank; we fill it from assessor data
+        if (shName === 'Imprvd Sales' && a.buildingSF) {
+          const sfN = +a.buildingSF;
+          if (!isNaN(sfN) && isFinite(sfN)) {
+            const sfAddr = XLSX.utils.encode_cell({r:8, c:1}); // row 9, col B
+            ws[sfAddr] = Object.assign({}, ws[sfAddr]||{}, {t:'n', v:sfN, w:String(sfN)});
+          }
+        }
+
+        // Clear stale CoStar data from Location sheet — preserve structural labels only
+        if (shName === 'Location' && ws['!ref']) {
+          const LOCATION_LABELS = new Set([
+            'Name','Address','City','State',
+            '1 Mile Population','M HH Income','1 Mile HH Income',
+            '3 Mile Population','3 Mile HH Income','Vehicles Per Day',
+            'Sales','Lease','Land'
+          ]);
+          const rng = XLSX.utils.decode_range(ws['!ref']);
+          for (let R = rng.s.r; R <= rng.e.r; R++) {
+            for (let C = rng.s.c; C <= rng.e.c; C++) {
+              const ca = XLSX.utils.encode_cell({r:R, c:C});
+              const cell = ws[ca];
+              if (!cell || cell.f) continue; // skip missing or formula cells
+              const v = cell.v;
+              if (v !== undefined && v !== null && v !== '') {
+                if (!LOCATION_LABELS.has(String(v).trim())) {
+                  ws[ca] = Object.assign({}, cell, {v:'', w:'', t:'s'});
+                }
+              }
+            }
+          }
+        }
+
         // Pre-populate comp data if CoStar data is available
         if (shName === 'Imprvd Sales')  tplPopulateSales(ws,  costarData.sales);
         if (shName === 'LeaseComps')    tplPopulateLeases(ws, costarData.leases);
@@ -1761,7 +1795,14 @@ async function downloadExcel() {
       ['Owner Occupied', a.ownerOccupied||NVstr],
       ['Occupancy %', a.occupancyPct||NVstr],
       ['Building Area (SF)', a.buildingSF||NVstr],
-      ['Rentable Area (SF)', a.rentableSF||NVstr],
+      // Guard: if rentableSF < 60% of buildingSF, the AI likely captured
+      // the vacant-suite SF instead of the total rentable area — use buildingSF
+      ['Rentable Area (SF)', (() => {
+        const r = +a.rentableSF, b = +a.buildingSF;
+        if (a.rentableSF && isFinite(r) && isFinite(b) && b > 0 && r < b * 0.6)
+          return b; // fall back to full building SF
+        return a.rentableSF||NVstr;
+      })()],
       ['Land Area (Acres)', va('Land Area (Acres)',a.landArea)],
       ['Land Area (SF)', a.landAreaSF||NVstr],
       ['Year Built', va('Year Built',a.yearBuilt)],
