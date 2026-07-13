@@ -510,10 +510,17 @@ async function startResearch() {
           if (econ.countyPop || econ.countyMedianHHIncome) log('Demographics sourced via web search.');
         }
       }
+      // Always back-fill individual BLS fields the API didn't return
+      if (econ.msaUnemployRate && !publicData.bls?.blsMSA) {
+        const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
+        publicData.bls = publicData.bls || {};
+        publicData.bls.blsMSA = {value:toRate(econ.msaUnemployRate), period:econ.msaUnemployPeriod||''};
+      }
       if (econ.countyUnemployRate && !publicData.bls?.blsCounty) {
         const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
         publicData.bls = publicData.bls || {};
         if (econ.countyUnemployRate)   publicData.bls.blsCounty   = {value:toRate(econ.countyUnemployRate),   period:econ.countyUnemployPeriod||''};
+        if (econ.msaUnemployRate)      publicData.bls.blsMSA      = {value:toRate(econ.msaUnemployRate),      period:econ.msaUnemployPeriod||''};
         if (econ.stateUnemployRate)    publicData.bls.blsState    = {value:toRate(econ.stateUnemployRate),    period:econ.stateUnemployPeriod||''};
         if (econ.nationalUnemployRate) publicData.bls.blsNational = {value:toRate(econ.nationalUnemployRate), period:econ.nationalUnemployPeriod||''};
         log('Unemployment rates sourced via web search.');
@@ -824,7 +831,7 @@ async function fetchBLS(countyFips, msaInfo) {
   try {
     const r = await fetch('https://api.bls.gov/publicAPI/v2/timeseries/data/',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({seriesid:series,startyear:'2023',endyear:'2025'})
+      body:JSON.stringify({seriesid:series,startyear:'2024',endyear:'2026'})
     });
     const d = await r.json();
     const out = {};
@@ -856,7 +863,9 @@ async function fetchTreasury() {
     const lines = text.trim().split('\n').filter(l=>l.trim());
     if (lines.length >= 2) {
       const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
-      const last = lines[lines.length-1].split(',').map(v=>v.replace(/"/g,'').trim());
+      // Treasury CSV is newest-first; line[1] is the most recent trading day.
+      // lines[lines.length-1] would be Jan 2 — the oldest date in the file.
+      const last = lines[1].split(',').map(v=>v.replace(/"/g,'').trim());
       const obj = {}; headers.forEach((h,i)=>obj[h]=last[i]);
       const g = k => { const mk=Object.keys(obj).find(k2=>k2.toLowerCase().includes(k.toLowerCase())); return mk?obj[mk]:null; };
       result.date = obj[Object.keys(obj)[0]] || result.date;
@@ -981,7 +990,7 @@ Search Google for the parcel number found in Search 1. Look for additional publi
 
 ━━━ SEARCH 9: DEMOGRAPHICS, UNEMPLOYMENT & TREASURY RATES ━━━
 A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income.
-B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "Indiana unemployment rate" and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025").
+B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "${msaInfo?.name||'Indianapolis'} MSA unemployment rate", "Indiana unemployment rate", and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025") for all four: county, MSA, state, national.
 C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate current" — get the current 10-year Treasury yield. Also get the 5-year and 2-year yields if available.
 
 ━━━ OUTPUT — Return ONLY this JSON, no markdown: ━━━
@@ -1016,6 +1025,7 @@ C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate curr
   "econ":{
     "countyPop":"","countyMedianHHIncome":"",
     "countyUnemployRate":"","countyUnemployPeriod":"",
+    "msaUnemployRate":"","msaUnemployPeriod":"",
     "stateUnemployRate":"","stateUnemployPeriod":"",
     "nationalUnemployRate":"","nationalUnemployPeriod":"",
     "treasury10yr":"","treasury5yr":"","treasury2yr":"","treasuryDate":""
@@ -1679,8 +1689,8 @@ async function downloadExcel() {
     } catch(e) { console.warn('Template fetch failed:', e); }
 
     if (templateWb) {
-      // Helper: safe number — returns number only if finite, else ''
-      const safeNum = v => { const n = +v; return (isFinite(n) && !isNaN(n)) ? n : ''; };
+      // Helper: safe number — strips commas first (AI often returns "15,437"), then parses
+      const safeNum = v => { const n = parseFloat(String(v).replace(/,/g,'')); return (isFinite(n) && !isNaN(n)) ? n : ''; };
       // City fallback: parse from address if geocoder didn't return city separately
       const cityVal = d.city || (d.address ? (d.address.match(/,?\s*([A-Za-z\s]+),?\s*IN\b/i)||[])[1]?.trim() : '') || '';
 
@@ -1708,7 +1718,9 @@ async function downloadExcel() {
         const ws = templateWb.Sheets[shName];
         if (!ws) continue;
 
-        // Replace AUTO: cells — fill with real value, or blank if unknown (never leave AUTO: marker)
+        // Replace AUTO: and [bracket] placeholder cells
+        // AUTO: markers → exact values from autoMap
+        // [MSA Name] / [County] → real names (template uses these as row labels in EBI/IN MSA)
         if (ws['!ref']) {
           const range = XLSX.utils.decode_range(ws['!ref']);
           for (let R = range.s.r; R <= range.e.r; R++) {
@@ -1717,9 +1729,11 @@ async function downloadExcel() {
               const cell = ws[addr];
               if (!cell) continue;
               const v = cell.v;
-              if (typeof v === 'string' && v.startsWith('AUTO:')) {
+              if (typeof v !== 'string') continue;
+
+              // AUTO: markers
+              if (v.startsWith('AUTO:')) {
                 const rep = autoMap[v];
-                // Always replace AUTO: marker — use value if available, blank if not
                 const val = (rep !== undefined && rep !== '') ? rep : '';
                 ws[addr] = Object.assign({}, cell, {
                   t: (typeof val === 'number') ? 'n' : 's',
@@ -1727,14 +1741,31 @@ async function downloadExcel() {
                 });
                 delete ws[addr].f;
               }
+
+              // Bracket placeholders — replace label text only (preserves data cells)
+              else if (v === '[MSA Name]') {
+                const msaN = d.msaName || 'Indianapolis-Carmel-Anderson, IN';
+                ws[addr] = Object.assign({}, cell, {t:'s', v:msaN, w:msaN});
+              }
+              else if (v === '[County]') {
+                const coN = d.countyName || 'County';
+                ws[addr] = Object.assign({}, cell, {t:'s', v:coN, w:coN});
+              }
+              else if (v.includes('[MSA Name]') || v.includes('[County]')) {
+                const sub = v
+                  .replace(/\[MSA Name\]/g, d.msaName||'Indianapolis-Carmel-Anderson, IN')
+                  .replace(/\[County\]/g,   d.countyName||'County');
+                ws[addr] = Object.assign({}, cell, {t:'s', v:sub, w:sub});
+              }
             }
           }
         }
 
         // Write subject Building SF into Imprvd Sales subject column (B9)
-        // The template leaves this blank; we fill it from assessor data
+        // The template leaves this blank; we fill it from assessor data.
+        // Must strip commas before parsing — "15,437" → NaN with plain +
         if (shName === 'Imprvd Sales' && a.buildingSF) {
-          const sfN = +a.buildingSF;
+          const sfN = parseFloat(String(a.buildingSF).replace(/,/g,''));
           if (!isNaN(sfN) && isFinite(sfN)) {
             const sfAddr = XLSX.utils.encode_cell({r:8, c:1}); // row 9, col B
             ws[sfAddr] = Object.assign({}, ws[sfAddr]||{}, {t:'n', v:sfN, w:String(sfN)});
@@ -1769,6 +1800,21 @@ async function downloadExcel() {
         if (shName === 'Imprvd Sales')  tplPopulateSales(ws,  costarData.sales);
         if (shName === 'LeaseComps')    tplPopulateLeases(ws, costarData.leases);
 
+        // IN MSA sheet: write Indiana and US median HH income for 2023 (col K = c=10)
+        // Rows: Indiana = r=5, United States = r=6 (0-indexed, matching template structure)
+        if (shName === 'IN MSA') {
+          const wn = (r, cv, v) => {
+            if (!v) return;
+            const n = parseFloat(String(v).replace(/,/g,''));
+            if (!isNaN(n) && isFinite(n)) {
+              const ca = XLSX.utils.encode_cell({r, c:cv});
+              ws[ca] = Object.assign({}, ws[ca]||{}, {t:'n', v:n, w:String(n)});
+            }
+          };
+          wn(5, 10, st?.medHHIncome);  // Indiana 2023 (col K)
+          wn(6, 10, nat?.medHHIncome); // US 2023 (col K)
+        }
+
         XLSX.utils.book_append_sheet(wb, ws, shName);
       }
     }
@@ -1795,12 +1841,18 @@ async function downloadExcel() {
       ['Owner Occupied', a.ownerOccupied||NVstr],
       ['Occupancy %', a.occupancyPct||NVstr],
       ['Building Area (SF)', a.buildingSF||NVstr],
-      // Guard: if rentableSF < 60% of buildingSF, the AI likely captured
-      // the vacant-suite SF instead of the total rentable area — use buildingSF
+      // Guard: AI sometimes returns the vacant/available suite SF instead of
+      // total rentable area, sometimes as a descriptive string like
+      // "5,864 SF currently available (Suite B)". Detect either case and fall
+      // back to buildingSF when the value looks like a partial/available area.
       ['Rentable Area (SF)', (() => {
-        const r = +a.rentableSF, b = +a.buildingSF;
-        if (a.rentableSF && isFinite(r) && isFinite(b) && b > 0 && r < b * 0.6)
-          return b; // fall back to full building SF
+        const raw = String(a.rentableSF||'');
+        const b   = parseFloat(String(a.buildingSF||'').replace(/,/g,''));
+        // Strip commas to parse the leading number out of any string
+        const r   = parseFloat(raw.replace(/,/g,''));
+        const looksPartial = /available|vacant|suite|currently/i.test(raw);
+        if (a.rentableSF && looksPartial && isFinite(b)) return b;
+        if (a.rentableSF && isFinite(r) && isFinite(b) && b > 0 && r < b * 0.6) return b;
         return a.rentableSF||NVstr;
       })()],
       ['Land Area (Acres)', va('Land Area (Acres)',a.landArea)],
