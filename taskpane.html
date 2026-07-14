@@ -1082,7 +1082,7 @@ Search Google for the parcel number found in Search 1. Look for additional publi
 
 ━━━ SEARCH 9: DEMOGRAPHICS, UNEMPLOYMENT & TREASURY RATES ━━━
 A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income.
-B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "${msaInfo?.name||'Indianapolis'} MSA unemployment rate", "Indiana unemployment rate", and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025") for all four: county, MSA, state, national.
+B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "${(INDIANA_MSA[countyFips]?.name)||'Indianapolis'} MSA unemployment rate", "Indiana unemployment rate", and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025") for all four: county, MSA, state, national.
 C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate current" — get the current 10-year Treasury yield. Also get the 5-year and 2-year yields if available.
 
 ━━━ OUTPUT — Return ONLY this JSON, no markdown: ━━━
