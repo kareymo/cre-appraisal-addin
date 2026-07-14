@@ -1300,7 +1300,15 @@ Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull Fr
 
 // ── RENDER HELPERS ────────────────────────────────────────────────────────────
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function fmt(n,pre='',suf='') { return (n&&!isNaN(String(n).replace(/[$,]/g,'')))? pre+Number(String(n).replace(/[$,]/g,'')).toLocaleString()+suf : null; }
+function fmt(n,pre='',suf='') {
+  if (n === null || n === undefined || n === '') return null;
+  // Extract the leading numeric token so values like "15,437 SF" or "165,686 (2023)"
+  // still format (was returning null → callers rendered the literal "null SF").
+  const m = String(n).match(/-?[\d,]+(?:\.\d+)?/);
+  if (!m) return null;
+  const num = Number(m[0].replace(/,/g,''));
+  return isNaN(num) ? null : pre + num.toLocaleString() + suf;
+}
 function pct(n) { return (n&&!isNaN(n))? Number(n).toFixed(1)+'%' : null; }
 const NV = v => !v || String(v).includes('Verify Before') || String(v).includes('Verify Using') || String(v).includes('Pull From CoStar') || String(v).includes('Not Available') || String(v).includes('Needs Research') || String(v).includes('MANUAL_LOOKUP') || String(v).includes('Needs Verif') || String(v).includes('CoStar Input') || String(v).includes('Manual Verif');
 
@@ -1646,10 +1654,54 @@ async function parseCoStarData() {
       }
     } catch(e) { log(`⚠ Could not parse ${s.label}`); }
   }
+  applyCostarSubject();
   renderReportData();
   document.getElementById('downloadBtn').disabled = false;
   setWorkflowStep(4);
   log('✅ CoStar data added. Click Download Workbook.');
+}
+
+// Apply the CoStar subject-property detail over the assessor data. CoStar is the
+// appraiser's authoritative source for physical building specs, so its values
+// take precedence over public-record / AI values for these fields. This is what
+// makes the pasted subject box actually flow into the workbook (Property Summary,
+// Imprvd Sales B9, RE Tax building size, etc.).
+function applyCostarSubject() {
+  const s = costarData.subject;
+  if (!s) return;
+  const subj = Array.isArray(s) ? s[0] : s;
+  if (!subj || typeof subj !== 'object') return;
+  publicData.assessor = publicData.assessor || {};
+  const a = publicData.assessor;
+  const keys = Object.keys(subj);
+  const norm = k => String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
+  // Strict picker: exact normalized key match first, then key-STARTS-WITH-candidate.
+  // Avoids resolveField's two-way substring fuzzing (which let short keys like
+  // "type"/"property" wrongly match "construction type"/"property subtype").
+  const g = (...cands) => {
+    const cs = cands.map(norm);
+    for (const c of cs) { const k = keys.find(k => norm(k) === c); if (k && subj[k] != null && subj[k] !== '') return String(subj[k]); }
+    for (const c of cs) { const k = keys.find(k => norm(k).startsWith(c) && subj[k] != null && subj[k] !== ''); if (k) return String(subj[k]); }
+    return '';
+  };
+  const firstNum = v => { const m = String(v).match(/[\d,]+(?:\.\d+)?/); return m ? m[0].replace(/,/g,'') : ''; };
+  const set = (field, val) => { if (val) a[field] = val; };
+
+  set('buildingSF',       firstNum(g('building sf','bldg sf','gross building area','building area','gla')));
+  set('rentableSF',       firstNum(g('rentable sf','rentable area','net rentable')));
+  set('yearBuilt',        firstNum(g('year built','yearbuilt')));
+  set('stories',          firstNum(g('stories','number of stories','floors')));
+  set('zoning',           g('zoning','zoning code','zoning district'));
+  set('constructionType', g('construction type','construction'));
+  set('exteriorWalls',    g('exterior walls','exterior'));
+  set('roofType',         g('roof type','roof'));
+  set('hvac',             g('hvac'));
+  set('propertySubtype',  g('property subtype','subtype','property type','type'));
+  const occ  = g('occupancy','occupancy pct','occupancy rate'); if (occ)  a.occupancyPct = occ;
+  const land = firstNum(g('land area','land','acres','lot size'));  if (land) a.landArea = land;
+  const park = firstNum(g('parking spaces','parking count','parking')); if (park) { a.office = a.office||{}; a.office.parkingCount = park; }
+
+  if (a.buildingSF) log('✅ Subject building specs applied from CoStar (overrides public record).');
 }
 
 function renderReportData() {
@@ -1706,8 +1758,10 @@ function resolveField(item, header) {
     if (m !== undefined) return safeStr(item[m]);
   }
   const hn = header.toLowerCase().replace(/[^a-z0-9]/g,'');
-  // Loose match: only match if the field value is scalar (avoid matching wrapper keys like "markets" → array)
-  const loose = keys.find(k=>{const kn=k.toLowerCase().replace(/[^a-z0-9]/g,'');return kn.includes(hn)||hn.includes(kn);});
+  // Loose match: exact or PREFIX only (not two-way substring). Two-way `includes`
+  // let "market" wrongly grab a "submarket" key. Prefix avoids that: neither
+  // "market" nor "submarket" is a prefix of the other.
+  const loose = keys.find(k=>{const kn=k.toLowerCase().replace(/[^a-z0-9]/g,'');return kn===hn||kn.startsWith(hn)||hn.startsWith(kn);});
   if (!loose) return '';
   const v = item[loose];
   if (Array.isArray(v) || (v && typeof v === 'object')) return ''; // skip — this is a container, not a field value
@@ -1721,6 +1775,9 @@ async function downloadExcel() {
   // already sanitizes, but re-running here guarantees clean output even if the
   // data was fetched by an older cached build before a hard-refresh.
   if (publicData.assessor) publicData.assessor = sanitizeAssessor(publicData.assessor);
+  // Re-apply CoStar subject specs AFTER sanitize so they take precedence and are
+  // never blanked (belt-and-suspenders in case parse happened on an older build).
+  applyCostarSubject();
   const d = publicData, a = d.assessor||{}, c = d.census||{}, bls = d.bls||{},
         t = d.treasury||{}, f = d.fema||{}, indot = d.indot||{};
   const co = c.county||{}, st = c.state||{}, nat = c.national||{};
@@ -1755,10 +1812,17 @@ async function downloadExcel() {
     return ws;
   }
 
-  // Reference helpers
-  const r   = n => ({ f: `'0 - Action Items'!D${n}` });
-  const adj = (row, sale) => ({ f: `'0 - Action Items'!${String.fromCharCode(65+sale)}${row}` });
-  const ps  = n => ({ f: `'Property Summary'!B${n}` });
+  // Reference helpers — resolve cross-sheet references by LABEL, not by a fixed
+  // row number. These maps are populated when the Action Items / Property Summary
+  // sheets are built (below), by scanning the actual row arrays. Label lookup is
+  // robust to rows shifting — e.g. the conditional assessor-error rows in Action
+  // Items move every subsequent row. Static row numbers silently mis-pointed the
+  // report formulas (FINAL VALUE, taxes, tenant, etc.); a label miss now yields a
+  // blank cell (safe & visible) instead of a wrong value (silent & dangerous).
+  const AI_ROW = {}, PS_ROW = {};
+  const _rk = s => String(s).toLowerCase().replace(/\s+/g,' ').trim();
+  const r  = key => { const n = AI_ROW[_rk(key)]; if (!n) { console.warn('Action Items row not found:', key); return ''; } return { f: `'0 - Action Items'!D${n}` }; };
+  const ps = key => { const n = PS_ROW[_rk(key)]; if (!n) { console.warn('Property Summary row not found:', key); return ''; } return { f: `'Property Summary'!B${n}` }; };
   const mr  = n => ({ f: `'Market Rates'!B${n}` });
   const va  = (field, autoVal) => {
     if (!NV(autoVal) && autoVal) return String(autoVal);
@@ -1932,6 +1996,15 @@ async function downloadExcel() {
     } else {
       aiRows.push(['✅ All data fields auto-populated!','','','']);
     }
+
+    // Populate the label→row map from the FINAL aiRows layout (after all pushes,
+    // incl. the conditional error rows). Value fields live in column B; section /
+    // comp-adjustment labels live in column A. First occurrence wins.
+    aiRows.forEach((row, i) => {
+      const rn = i + 1;
+      if (row[1]) { const k = _rk(row[1]); if (!(k in AI_ROW)) AI_ROW[k] = rn; }
+      else if (row[0]) { const k = _rk(row[0]); if (!(k in AI_ROW)) AI_ROW[k] = rn; }
+    });
 
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
     ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
@@ -2224,11 +2297,11 @@ async function downloadExcel() {
       ['Cap Rate', va('Cap Rate (Current)',a.capRate)],
       [''],
       ['── Report Identification ──',''],
-      ['Appraiser Name', r(7)],
-      ['Effective Date of Appraisal', r(8)],
-      ['Date of Inspection', r(9)],
-      ['Client / Intended User', r(10)],
-      ['Intended Use', r(11)],
+      ['Appraiser Name', r('Appraiser Name')],
+      ['Effective Date of Appraisal', r('Effective Date of Appraisal')],
+      ['Date of Inspection', r('Date of Inspection')],
+      ['Client / Intended User', r('Client / Intended User')],
+      ['Intended Use', r('Intended Use')],
       ['Type of Value','Market Value'],
       ['Interest Appraised','Fee Simple Estate'],
     ];
@@ -2278,6 +2351,13 @@ async function downloadExcel() {
         ['Amenities', mf.amenities||NVstr]);
     }
 
+    // Populate label→row map from the actual Property Summary layout (labels in
+    // column A). First occurrence wins (some labels like "Occupancy %" repeat).
+    rows.forEach((row, i) => {
+      const k = _rk(row[0]);
+      if (k && !(k in PS_ROW)) PS_ROW[k] = i + 1;
+    });
+
     const ws = addSheet('Property Summary', rows);
     ws['!cols'] = [{wch:28},{wch:44}];
   }
@@ -2286,9 +2366,12 @@ async function downloadExcel() {
   {
     const hist = a.transferHistory?.length ? a.transferHistory
       : (a.salesHistory?.length ? a.salesHistory : []);
-    const aiRefs = Array.from({length:5},(_,i)=>[
-      {f:`'0 - Action Items'!A${49+i}`},{f:`'0 - Action Items'!B${49+i}`},
-      {f:`'0 - Action Items'!C${49+i}`},{f:`'0 - Action Items'!D${49+i}`}]);
+    // Anchor to the Action Items header row by label (robust to row shifts); the
+    // 5 blank data rows sit directly below it.
+    const salesHdr = AI_ROW[_rk('Sale Price  (from DLGF Sales Disclosure)')] || 49;
+    const aiRefs = Array.from({length:5},(_,i)=>{ const rn = salesHdr+1+i; return [
+      {f:`'0 - Action Items'!A${rn}`},{f:`'0 - Action Items'!B${rn}`},
+      {f:`'0 - Action Items'!C${rn}`},{f:`'0 - Action Items'!D${rn}`}]; });
     addSheet('Sales History',[
       ['TRANSFER / SALES HISTORY (Multiple Transfers)','','',''],
       ['Source: Indiana Gateway Transfer History + Indiana DLGF Sales Disclosure','','',''],
@@ -2300,8 +2383,9 @@ async function downloadExcel() {
   // ── TAX HISTORY ─────────────────────────────────────────────────────────────
   {
     const taxHist = a.taxHistory?.length ? a.taxHistory : [];
-    const aiTaxRefs = Array.from({length:5},(_,i)=>[
-      {f:`'0 - Action Items'!A${57+i}`},{f:`'0 - Action Items'!B${57+i}`},{f:`'0 - Action Items'!C${57+i}`}]);
+    const taxHdr = AI_ROW[_rk('Annual Tax Bill (spring + fall)')] || 57;
+    const aiTaxRefs = Array.from({length:5},(_,i)=>{ const rn = taxHdr+1+i; return [
+      {f:`'0 - Action Items'!A${rn}`},{f:`'0 - Action Items'!B${rn}`},{f:`'0 - Action Items'!C${rn}`}]; });
     addSheet('Tax History',[
       ['TAX HISTORY','',''],
       ['Source: Indiana Gateway → Tax Bill tab OR county treasurer','',''],
@@ -2350,8 +2434,8 @@ async function downloadExcel() {
       ['30-Year Treasury', t.y30?t.y30+'%':''],
       [''],
       ['SOFR SWAP RATES (from Action Items)',''],
-      ['5-Year SOFR Swap', r(23)],
-      ['10-Year SOFR Swap', r(24)],
+      ['5-Year SOFR Swap', r('5-Year SOFR Swap Rate')],
+      ['10-Year SOFR Swap', r('10-Year SOFR Swap Rate')],
     ];
     addSheet('Market Rates', mrRows);
   }
@@ -2461,7 +2545,7 @@ async function downloadExcel() {
       ['MARKET RENT CONCLUSION'],
       ['Range of Adjusted Rents ($/SF NNN):', ''],
       ['Concluded Market Rent ($/SF NNN):', ''],
-      ['Building SF:', ps(18)],
+      ['Building SF:', ps('Building Area (SF)')],
       ['POTENTIAL GROSS INCOME:', { f:`IFERROR(ROUND(B29*B28,0),"")` }],
     ];
 
@@ -2600,8 +2684,8 @@ async function downloadExcel() {
       ['VALUE CONCLUSION — SALES COMPARISON'],                                      // row 40
       ['Range of Adjusted Values ($/SF):', ''],                                     // row 41
       ['Concluded Value Per SF:', ''],                                              // row 42
-      ['Building SF:', ps(18)],                                                     // row 43
-      ['INDICATED VALUE (Rounded):', r(38)],                                       // row 44
+      ['Building SF:', ps('Building Area (SF)')],                                                     // row 43
+      ['INDICATED VALUE (Rounded):', r('Sales Comparison Approach — Indicated Value')],
     ];
 
     const wsSales = XLSX.utils.aoa_to_sheet(rows);
@@ -2619,52 +2703,53 @@ async function downloadExcel() {
 
   // Income Approach
   {
-    const mktCap = costarData.market?(Array.isArray(costarData.market)?costarData.market[0]:costarData.market).avg_cap_rate||'':'';
+    const mktRec = Array.isArray(costarData.market) ? costarData.market[0] : costarData.market;
+    const mktCap = (mktRec && typeof mktRec === 'object') ? (mktRec.avg_cap_rate || mktRec.avgCapRate || '') : '';
     addSheet('Report - Income Approach',[
       ['INCOME CAPITALIZATION APPROACH — Read only. Inputs on "0 - Action Items" tab.','','',''],
-      ['Subject:', ps(4), '', ''],
-      ['Building SF:', ps(18), '', ''],
-      ['Tenant:', ps(61), '', ''],
-      ['Lease Expiration:', ps(63), '', ''],
-      ['FIRM Flood Zone:', ps(54), '', ''],
+      ['Subject:', ps('Address'), '', ''],
+      ['Building SF:', ps('Building Area (SF)'), '', ''],
+      ['Tenant:', ps('Primary Tenant'), '', ''],
+      ['Lease Expiration:', ps('Lease Expiration'), '', ''],
+      ['FIRM Flood Zone:', ps('Flood Zone'), '', ''],
       [''],
       ['POTENTIAL GROSS INCOME','Annual $','$/SF/Yr','% of PGI'],
-      ['Base Rent — NNN (Market Rate)', '', r(14), ''],
+      ['Base Rent — NNN (Market Rate)', '', r('Market Rent NNN ($/SF/Yr)'), ''],
       ['CAM Reimbursements','','',''],
       ['Real Estate Tax Reimbursement','','',''],
       ['Other Income','','',''],
       ['TOTAL PGI','','',''],
       [''],
       ['VACANCY & CREDIT LOSS','Annual $','Rate','Notes'],
-      ['Market Vacancy','', r(15),'From CoStar market analytics'],
-      ['Credit Loss','', r(16),'Typically 1-2%'],
+      ['Market Vacancy','', r('Market Vacancy Rate (%)'),'From CoStar market analytics'],
+      ['Credit Loss','', r('Credit Loss Rate (%)'),'Typically 1-2%'],
       ['TOTAL V&CL','','',''],
       [''],
       ['EFFECTIVE GROSS INCOME (EGI)','','',''],
       [''],
       ['OPERATING EXPENSES','Annual $','$/SF/Yr','% of EGI'],
-      ['Real Estate Taxes (from assessor)', ps(49), '', '← auto'],
-      ['Insurance','', r(17), '← Action Items'],
-      ['Property Management','', r(18), '← Action Items'],
-      ['Maintenance & Repairs','', r(19), '← Action Items'],
-      ['Reserves for Replacement','', r(20), '← Action Items'],
-      ['Other Expenses','', r(21), '← Action Items'],
+      ['Real Estate Taxes (from assessor)', ps('Annual Taxes'), '', '← auto'],
+      ['Insurance','', r('Insurance ($/SF/Yr)'), '← Action Items'],
+      ['Property Management','', r('Property Management (% of EGI)'), '← Action Items'],
+      ['Maintenance & Repairs','', r('Maintenance & Repairs ($/SF/Yr)'), '← Action Items'],
+      ['Reserves for Replacement','', r('Reserves for Replacement ($/SF/Yr)'), '← Action Items'],
+      ['Other Expenses','', r('Other Expenses ($/SF/Yr)'), '← Action Items'],
       ['TOTAL OPERATING EXPENSES','','',''],
       [''],
       ['NET OPERATING INCOME (NOI)','','',''],
       [''],
       ['DIRECT CAPITALIZATION','','',''],
       ['NOI:','','',''],
-      ['Selected Cap Rate:', '', r(22), '← Action Items'],
+      ['Selected Cap Rate:', '', r('Selected Cap Rate'), '← Action Items'],
       ['INDICATED VALUE (NOI ÷ Rate):','','',''],
-      ['VALUE INDICATION (Rounded):', r(39), '', '← enter on Action Items'],
+      ['VALUE INDICATION (Rounded):', r('Income Approach — Indicated Value'), '', '← enter on Action Items'],
       [''],
       ['CAP RATE SUPPORT','Range','Selected','Source'],
       ['CoStar Market Analytics', mktCap, '', 'CoStar (auto)'],
       ['Comparable Sale Implied Rates','','','Comp Sales Grid'],
       ['10-Year Treasury:', mr(8), '', '← auto'],
       ['5-Year SOFR Swap:', mr(13), '', '← Action Items'],
-      ['SELECTED CAP RATE:', r(22), '', '← Action Items'],
+      ['SELECTED CAP RATE:', r('Selected Cap Rate'), '', '← Action Items'],
     ]);
   }
 
@@ -2674,29 +2759,29 @@ async function downloadExcel() {
       ['RECONCILIATION & FINAL VALUE CONCLUSION — Read only. Conclusions on "0 - Action Items".','','',''],
       [''],
       ['SUBJECT PROPERTY','','',''],
-      ['Address:', ps(4), '', ''],
-      ['County:', ps(5), '', ''],
-      ['MSA:', ps(6), '', ''],
-      ['Parcel Number:', ps(9), '', ''],
+      ['Address:', ps('Address'), '', ''],
+      ['County:', ps('County'), '', ''],
+      ['MSA:', ps('MSA'), '', ''],
+      ['Parcel Number:', ps('Parcel Number'), '', ''],
       ['Property Type:', ptype, '', ''],
-      ['Building SF:', ps(18), '', ''],
-      ['Year Built:', ps(22), '', ''],
-      ['Flood Zone:', ps(54), '', ''],
-      ['FIRM Panel:', ps(56), '', ''],
-      ['Tenant:', ps(61), '', ''],
-      ['Lease Expiration:', ps(63), '', ''],
-      ['Annual Taxes:', ps(49), '', ''],
-      ['Appraiser:', ps(71), '', ''],
-      ['Effective Date:', ps(72), '', ''],
+      ['Building SF:', ps('Building Area (SF)'), '', ''],
+      ['Year Built:', ps('Year Built'), '', ''],
+      ['Flood Zone:', ps('Flood Zone'), '', ''],
+      ['FIRM Panel:', ps('FIRM Panel Number'), '', ''],
+      ['Tenant:', ps('Primary Tenant'), '', ''],
+      ['Lease Expiration:', ps('Lease Expiration'), '', ''],
+      ['Annual Taxes:', ps('Annual Taxes'), '', ''],
+      ['Appraiser:', ps('Appraiser Name'), '', ''],
+      ['Effective Date:', ps('Effective Date of Appraisal'), '', ''],
       [''],
       ['APPROACH INDICATIONS','Value Indication','Value/SF','Weight'],
-      ['Sales Comparison Approach', r(38), '', r(41)],
-      ['Income Capitalization Approach', r(39), '', r(42)],
-      ['Cost Approach', r(40), '', '(supporting only)'],
+      ['Sales Comparison Approach', r('Sales Comparison Approach — Indicated Value'), '', r('Weight: Sales Comparison (%)')],
+      ['Income Capitalization Approach', r('Income Approach — Indicated Value'), '', r('Weight: Income Approach (%)')],
+      ['Cost Approach', r('Cost Approach — Indicated Value'), '', '(supporting only)'],
       [''],
-      ['FINAL MARKET VALUE:', r(43), '', ''],
-      ['Exposure Time:', r(44), '', ''],
-      ['Marketing Time:', r(45), '', ''],
+      ['FINAL MARKET VALUE:', r('FINAL MARKET VALUE (Rounded)'), '', ''],
+      ['Exposure Time:', r('Estimated Exposure Time'), '', ''],
+      ['Marketing Time:', r('Estimated Marketing Time'), '', ''],
     ]);
   }
 
