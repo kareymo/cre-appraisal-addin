@@ -1673,6 +1673,10 @@ function resolveField(item, header) {
 // ── DOWNLOAD EXCEL ────────────────────────────────────────────────────────────
 async function downloadExcel() {
   const wb = XLSX.utils.book_new();
+  // Defensive: sanitize assessor data again at download time. The Research step
+  // already sanitizes, but re-running here guarantees clean output even if the
+  // data was fetched by an older cached build before a hard-refresh.
+  if (publicData.assessor) publicData.assessor = sanitizeAssessor(publicData.assessor);
   const d = publicData, a = d.assessor||{}, c = d.census||{}, bls = d.bls||{},
         t = d.treasury||{}, f = d.fema||{}, indot = d.indot||{};
   const co = c.county||{}, st = c.state||{}, nat = c.national||{};
