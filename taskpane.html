@@ -1928,14 +1928,24 @@ async function downloadExcel() {
           }
         }
 
-        // Write subject Building SF into Imprvd Sales subject column (B9)
-        // The template leaves this blank; we fill it from assessor data.
-        // Must strip commas before parsing — "15,437" → NaN with plain +
-        if (shName === 'Imprvd Sales' && a.buildingSF) {
-          const sfN = parseFloat(String(a.buildingSF).replace(/,/g,''));
-          if (!isNaN(sfN) && isFinite(sfN)) {
-            const sfAddr = XLSX.utils.encode_cell({r:8, c:1}); // row 9, col B
-            ws[sfAddr] = Object.assign({}, ws[sfAddr]||{}, {t:'n', v:sfN, w:String(sfN)});
+        // Write subject data into Imprvd Sales subject column (B)
+        // B3=address, B5=county, B9=buildingSF, B11=land acres
+        if (shName === 'Imprvd Sales') {
+          const wsi = (r, cv, v, isNum) => {
+            const ca = XLSX.utils.encode_cell({r, c:cv});
+            if (!v && v !== 0) { if (ws[ca] && !ws[ca].f) ws[ca] = Object.assign({}, ws[ca], {v:'', w:'', t:'s'}); return; }
+            if (isNum) { const n = parseFloat(String(v).replace(/,/g,'')); if (!isNaN(n)) ws[ca] = Object.assign({}, ws[ca]||{}, {t:'n', v:n, w:String(n)}); }
+            else ws[ca] = Object.assign({}, ws[ca]||{}, {t:'s', v:String(v), w:String(v)});
+          };
+          wsi(4, 1, d.countyName||'');  // B5 = county
+          if (a.buildingSF) {
+            const sfN = parseFloat(String(a.buildingSF).replace(/,/g,''));
+            if (!isNaN(sfN) && isFinite(sfN)) wsi(8, 1, sfN, true); // B9 = building SF
+          }
+          if (a.landArea) {
+            const laStr = String(a.landArea||'');
+            const acMatch = laStr.match(/([\d,.]+)\s*ac/i) || (a.landAreaUnits==='acres' ? [null, laStr] : null);
+            if (acMatch) { const ac = parseFloat(acMatch[1].replace(/,/g,'')); if (!isNaN(ac)) wsi(10, 1, ac, true); } // B11 = land acres
           }
         }
 
@@ -1963,6 +1973,32 @@ async function downloadExcel() {
           }
         }
 
+        // Clear stale subject-column data from LeaseComps template and write current values
+        // The template may retain county/tenant/SF from a previous appraisal in column B
+        if (shName === 'LeaseComps') {
+          const wsc = (r, cv, v, isNum) => {
+            if (v === undefined || v === null || v === '') {
+              // Clear the cell regardless so stale data doesn't persist
+              const ca = XLSX.utils.encode_cell({r, c:cv});
+              if (ws[ca] && !ws[ca].f) ws[ca] = Object.assign({}, ws[ca], {v:'', w:'', t:'s'});
+              return;
+            }
+            const ca = XLSX.utils.encode_cell({r, c:cv});
+            if (isNum) {
+              const n = parseFloat(String(v).replace(/,/g,''));
+              if (!isNaN(n)) ws[ca] = Object.assign({}, ws[ca]||{}, {t:'n', v:n, w:String(n)});
+            } else {
+              ws[ca] = Object.assign({}, ws[ca]||{}, {t:'s', v:String(v), w:String(v)});
+            }
+          };
+          const subjBSF = parseFloat(String(a.buildingSF||'').replace(/,/g,''));
+          wsc(4, 1, d.countyName||'');          // B5 = county
+          wsc(5, 1, a.tenant||'');              // B6 = tenant
+          wsc(6, 1, a.leaseCommencementDate||''); // B7 = lease start
+          wsc(7, 1, a.annualRent||'');          // B8 = reported lease rate
+          wsc(8, 1, isNaN(subjBSF)?'':subjBSF, true); // B9 = building SF
+        }
+
         // Pre-populate comp data if CoStar data is available
         if (shName === 'Imprvd Sales')  tplPopulateSales(ws,  costarData.sales);
         if (shName === 'LeaseComps')    tplPopulateLeases(ws, costarData.leases);
@@ -1978,9 +2014,12 @@ async function downloadExcel() {
               ws[ca] = Object.assign({}, ws[ca]||{}, {t:'n', v:n, w:String(n)});
             }
           };
+          // Extract the FIRST number in a string (e.g. "63,000 (ACS 2023)" → 63000)
+          // Using /[^0-9.]/g would concatenate multiple numbers — use first-match instead
+          const firstNum = s => { const m = String(s).match(/[\d,]+(?:\.\d+)?/); return m ? parseFloat(m[0].replace(/,/g,'')) : NaN; };
           // Use Census API if available; fall back to AI-searched econ data
-          const stIncome  = st?.medHHIncome  || (econ?.stateMedianHHIncome    ? parseFloat(String(econ.stateMedianHHIncome).replace(/[^0-9.]/g,''))    : null);
-          const natIncome = nat?.medHHIncome || (econ?.nationalMedianHHIncome ? parseFloat(String(econ.nationalMedianHHIncome).replace(/[^0-9.]/g,'')) : null);
+          const stIncome  = st?.medHHIncome  || (econ?.stateMedianHHIncome    ? firstNum(econ.stateMedianHHIncome)    : null);
+          const natIncome = nat?.medHHIncome || (econ?.nationalMedianHHIncome ? firstNum(econ.nationalMedianHHIncome) : null);
           wn(5, 10, stIncome);   // Indiana 2023 (col K)
           wn(6, 10, natIncome);  // US 2023 (col K)
         }
