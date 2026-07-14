@@ -307,7 +307,20 @@ const INDIANA_MSA = {
   '141':{name:'South Bend-Mishawaka, IN-MI',blsCode:'4520'},'145':{name:'Indianapolis-Carmel-Anderson, IN',blsCode:'2698'},
   '157':{name:'Lafayette-West Lafayette, IN',blsCode:'3120'},'163':{name:'Evansville, IN-KY',blsCode:'2160'},
   '167':{name:'Terre Haute, IN',blsCode:'4360'},'173':{name:'Evansville, IN-KY',blsCode:'2160'},
-  '179':{name:'Fort Wayne, IN',blsCode:'2230'},'183':{name:'Fort Wayne, IN',blsCode:'2230'}
+  '179':{name:'Fort Wayne, IN',blsCode:'2230'},'183':{name:'Fort Wayne, IN',blsCode:'2230'},
+  // Multi-state MSAs: name only (no blsCode). BLS LAUMT series for these are NOT
+  // filed under Indiana's state code (18), so a hardcoded code would pull wrong
+  // data. MSA unemployment for these fills via the AI web-search back-fill instead.
+  '089':{name:'Chicago-Naperville-Elgin, IL-IN-WI'},      // Lake
+  '127':{name:'Chicago-Naperville-Elgin, IL-IN-WI'},      // Porter
+  '019':{name:'Louisville/Jefferson County, KY-IN'},      // Clark
+  '043':{name:'Louisville/Jefferson County, KY-IN'},      // Floyd
+  '061':{name:'Louisville/Jefferson County, KY-IN'},      // Harrison
+  '143':{name:'Louisville/Jefferson County, KY-IN'},      // Scott
+  '175':{name:'Louisville/Jefferson County, KY-IN'},      // Washington
+  '029':{name:'Cincinnati, OH-KY-IN'},                    // Dearborn
+  '115':{name:'Cincinnati, OH-KY-IN'},                    // Ohio
+  '161':{name:'Cincinnati, OH-KY-IN'}                     // Union
 };
 
 
@@ -706,15 +719,42 @@ function normalizeAddress(addr) {
 // On any lat/lon hit: Nominatim reverse → county/city
 // ──────────────────────────────────────────────────────────────────────────────
 
+// Remove suite/unit designators that break street geocoders.
+// "710 Averitt Rd C, Greenwood, IN" → "710 Averitt Rd, Greenwood, IN"
+// Handles: Suite/Ste/Unit/Apt/Bldg/Fl/Rm/#X, and a bare unit letter/number
+// sitting right after a street-suffix word before the comma.
+function stripUnit(address) {
+  // Only plain street-type suffixes (NOT "Road"/"Route"/"Highway", which take
+  // route NUMBERS like "State Road 135" that must never be stripped).
+  const STREET_SUFFIX = 'Rd|St|Street|Ave|Avenue|Dr|Drive|Ln|Lane|Ct|Court|Blvd|Boulevard|Way|Pkwy|Parkway|Cir|Circle|Pl|Place|Ter|Terrace|Trl|Trail|Row';
+  let s = address
+    // Explicit unit keywords anywhere: "Suite 200", "Ste. B", "Unit 4", "#12", "Bldg C"
+    .replace(/[,\s]+(?:Suite|Ste|Unit|Apt|Apartment|Bldg|Building|Fl|Floor|Rm|Room|Dept)\.?\s*#?\s*[\w-]+/gi, '')
+    .replace(/[,\s]+#\s*[\w-]+/g, '')
+    // Bare unit letter right after a street suffix, before a comma. Restrict to a
+    // SINGLE letter that is NOT a compass direction (N/S/E/W) so route numbers and
+    // post-directionals survive: "710 Averitt Rd C, ..." → "710 Averitt Rd, ..."
+    .replace(new RegExp(`\\b(${STREET_SUFFIX})\\.?\\s+(?!(?:N|S|E|W|NE|NW|SE|SW)\\b)[A-Za-z]\\s*,`, 'i'), '$1,')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+,/g, ',')
+    .trim();
+  return s;
+}
+
 // Build variant forms of the address to maximize geocoder hit rate
 function addressVariants(address) {
+  const stripped = stripUnit(address);
   const norm = normalizeAddress(address);
+  const strippedNorm = normalizeAddress(stripped);
   // Also try an IN-XXX variant (OSM prefers this for Indiana routes)
   const inVar = address.replace(/\bS\.?R\.?\s*(\d+)/gi, 'IN-$1')
                        .replace(/\bState\s+Road\s+(\d+)/gi, 'IN-$1');
-  const variants = [address, norm];
+  // Unit-stripped forms first — they resolve to exact rooftop more often
+  const variants = [];
+  if (stripped !== address) { variants.push(stripped, strippedNorm); }
+  variants.push(address, norm);
   if (inVar !== address) variants.push(inVar);
-  return [...new Set(variants)]; // dedupe
+  return [...new Set(variants)]; // dedupe, preserve order
 }
 
 // Does the TYPED address explicitly claim Indiana? (state token or Indiana ZIP)
@@ -1084,7 +1124,11 @@ TARGET: "${matchedAddress}" | County: ${countyName}, Indiana (FIPS 18${countyFip
 ━━━ SEARCH 1: ASSESSOR PARCEL + PROPERTY CLASSIFICATION ━━━
 ${isMarion
   ? `Search https://assessor.indy.gov — enter "${matchedAddress}". Click the parcel to open the FULL detail page.`
-  : `Search https://gateway.ifionline.org/assessedValue/ — select county "${countyName.replace(' County','')}", search by address. Click the parcel link.`
+  : `Find this parcel. Try MULTIPLE sources in this order until you find it:
+  1. Beacon/Schneider portal — Google: "${stripUnit(matchedAddress)}" beacon.schneidercorp.com ${countyName}. Most Indiana counties (including ${countyName}) host parcel records on Beacon.
+  2. Indiana Gateway — https://gateway.ifionline.org/assessedValue/ — select county "${countyName.replace(' County','')}", search by address.
+  3. Google directly: "${stripUnit(matchedAddress)}" parcel assessor ${countyName} Indiana — and "${stripUnit(matchedAddress)}" property record card.
+  IMPORTANT: search by the BASE street address "${stripUnit(matchedAddress)}" (drop any suite/unit letter) — assessor records are indexed by the base parcel, not the individual suite. If the exact street number isn't found, try the parcel for the building/development it sits in.`
 }
 Extract: parcel number, owner name (full legal name), ownership entity type (LLC/Corp/Individual/Trust), property type/classification code, property subtype, occupancy status (Occupied/Vacant/Partially Occupied), owner-occupied indicator, building gross area SF, rentable SF (= TOTAL rentable/leasable area of the entire building — NOT the vacant or available portion; for a multi-tenant building this is the full leasable SF, not one suite), land area (acres AND sq ft), year built, year renovated, number of buildings, number of stories, construction type (masonry/frame/steel/concrete), exterior walls, roof type, HVAC, condition, utilities available, access description.
 
@@ -2281,7 +2325,7 @@ async function downloadExcel() {
       ['UNEMPLOYMENT RATES (BLS LAUS)','','',''],
       ['Geography','Rate','Period','BLS Series'],
       [d.countyName, va('County Unemployment %',bls.blsCounty?.value), bls.blsCounty?.period||'', `LAUCN18${d.countyFips}0000000003`],
-      [d.msaName+' MSA', bls.blsMSA?.value||'', bls.blsMSA?.period||'', INDIANA_MSA[d.countyFips]?'LAUMT18'+INDIANA_MSA[d.countyFips].blsCode+'000000003':'N/A'],
+      [d.msaName+' MSA', bls.blsMSA?.value||'', bls.blsMSA?.period||'', INDIANA_MSA[d.countyFips]?.blsCode?'LAUMT18'+INDIANA_MSA[d.countyFips].blsCode+'000000003':'Web search — multi-state MSA'],
       ['Indiana', va('Indiana Unemployment %',bls.blsState?.value), bls.blsState?.period||'', 'LASST180000000000003'],
       ['United States', va('US Unemployment %',bls.blsNational?.value), bls.blsNational?.period||'', 'LNS14000000 (SA)'],
       [''],
