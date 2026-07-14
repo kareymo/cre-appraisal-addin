@@ -513,14 +513,27 @@ async function startResearch() {
       log('Property records retrieved.');
       // Back-fill census/bls/treasury from Claude's econ data if APIs were blocked
       const econ = publicData.assessor?.econ || {};
-      if (econ.countyPop || econ.countyMedianHHIncome) {
-        if (!publicData.census?.county?.pop) {
-          const toNum = s => { const n=parseFloat(String(s).replace(/[^0-9.]/g,'')); return isNaN(n)?null:n; };
-          publicData.census = publicData.census || {};
-          publicData.census.county = Object.assign(publicData.census.county||{}, {
-            pop: toNum(econ.countyPop), medHHIncome: toNum(econ.countyMedianHHIncome)
-          });
-          if (econ.countyPop || econ.countyMedianHHIncome) log('Demographics sourced via web search.');
+      // Extract first number only — "165,686 (2023)" must not become 1656862023
+      const toNum = s => { const m=String(s||'').match(/[\d,]+(?:\.\d+)?/); if(!m)return null; const n=parseFloat(m[0].replace(/,/g,'')); return isNaN(n)?null:n; };
+      if (econ.countyPop || econ.countyMedianHHIncome || econ.countyMedGrossRent) {
+        publicData.census = publicData.census || {};
+        // Merge — prefer any real Census API value, fill gaps from web search
+        const cty = publicData.census.county || {};
+        publicData.census.county = Object.assign({}, cty, {
+          pop:          cty.pop          || toNum(econ.countyPop),
+          medHHIncome:  cty.medHHIncome  || toNum(econ.countyMedianHHIncome),
+          medGrossRent: cty.medGrossRent || toNum(econ.countyMedGrossRent),
+          laborForce:   cty.laborForce   || toNum(econ.countyLaborForce)
+        });
+        const stt = publicData.census.state || {};
+        publicData.census.state = Object.assign({}, stt, { medHHIncome: stt.medHHIncome || toNum(econ.stateMedianHHIncome) });
+        const ntl = publicData.census.national || {};
+        publicData.census.national = Object.assign({}, ntl, { medHHIncome: ntl.medHHIncome || toNum(econ.nationalMedianHHIncome) });
+        // We have demographic data now (from web search) — clear the "unavailable" banner
+        if (publicData.census.county.pop || publicData.census.county.medHHIncome) {
+          publicData.censusBlocked = false;
+          publicData.censusViaSearch = true;
+          log('Demographics sourced via web search.');
         }
       }
       // Always back-fill individual BLS fields the API didn't return
@@ -1026,6 +1039,39 @@ async function fetchINDOT(lat, lon) {
 }
 
 
+// Scrub values where the AI echoed an adjacent field's label instead of real data.
+// Known LLM failure mode: when it can't find a value it sometimes writes the next
+// field's human-readable name (e.g. currentOwner:"Ownership Entity Type").
+const ASSESSOR_LABELS = new Set([
+  'parcel number','property type','property subtype','property class',
+  'occupancy status','owner occupied','current owner','ownership entity type',
+  'legal description','building sf','rentable sf','land area','land area units',
+  'land area sf','year built','year renovated','construction type','exterior walls',
+  'roof type','hvac','condition','stories','number of buildings','utilities',
+  'assessed land value','assessed improvement value','assessed improvements',
+  'total assessed value','assessed total value','assessed value year','assessment year',
+  'annual taxes','tax district','tax abatements','tax incentives','tif indicator',
+  'tif district','zoning','zoning description','permitted uses','conditional uses',
+  'overlay districts','future land use','current use compliance','current use','access',
+  'last sale date','last sale price','listing price','listing broker','tenant',
+  'tenant industry','lease type','lease commencement date','lease expiration',
+  'remaining term','renewal options','rent escalations','annual rent','occupancy pct',
+  'cap rate'
+]);
+function sanitizeAssessor(a) {
+  if (!a || typeof a !== 'object') return a;
+  const norm = s => String(s).toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+  for (const [k, v] of Object.entries(a)) {
+    if (typeof v !== 'string') continue;
+    const nv = norm(v);
+    // Blank the value if it is exactly a schema label that ISN'T this field's own name
+    if (ASSESSOR_LABELS.has(nv) && nv !== norm(k)) {
+      a[k] = 'Verify Before Report';
+    }
+  }
+  return a;
+}
+
 // ── ASSESSOR DATA (Claude + web search) ───────────────────────────────────────
 async function fetchAssessorData(rawAddress, matchedAddress, countyFips, countyName) {
   if (!apiKey) return {assessor:{note:'No API key — add in Settings for assessor lookup'}};
@@ -1081,7 +1127,7 @@ For multi-tenant: extract FULL rent roll — all tenants with suite, SF, rent, l
 Search Google for the parcel number found in Search 1. Look for additional public records, TIF district confirmation, news about the property, or additional data sources.
 
 ━━━ SEARCH 9: DEMOGRAPHICS, UNEMPLOYMENT & TREASURY RATES ━━━
-A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income. ALSO search "Indiana median household income ACS 2023" and "United States median household income ACS 2023" — get the statewide Indiana and US national figures (e.g. Indiana ~$63,000, US ~$77,000).
+A) Search: "${countyName} Indiana population median household income median gross rent" — use data.census.gov, census.gov, or American Community Survey (ACS 5-Year) results. Find, for ${countyName}: total population, median household income, median gross rent (monthly), and civilian labor force. ALSO search "Indiana median household income ACS 2023" and "United States median household income ACS 2023" — get the statewide Indiana and US national median household income (e.g. Indiana ~$63,000, US ~$77,000). Return each as a plain number with no commas or footnotes (e.g. "165686" not "165,686 (2023 ACS)").
 B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "${(INDIANA_MSA[countyFips]?.name)||'Indianapolis'} MSA unemployment rate", "Indiana unemployment rate", and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025") for all four: county, MSA, state, national.
 C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate current" — get the current 10-year Treasury yield. Also get the 5-year and 2-year yields if available.
 
@@ -1115,7 +1161,7 @@ C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate curr
   "salesHistory":[],
   "taxHistory":[],
   "econ":{
-    "countyPop":"","countyMedianHHIncome":"",
+    "countyPop":"","countyMedianHHIncome":"","countyMedGrossRent":"","countyLaborForce":"",
     "stateMedianHHIncome":"","nationalMedianHHIncome":"",
     "countyUnemployRate":"","countyUnemployPeriod":"",
     "msaUnemployRate":"","msaUnemployPeriod":"",
@@ -1125,7 +1171,7 @@ C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate curr
   },
   "notes":""
 }
-Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}]. For econ fields use plain numbers/strings like "4.2" or "4.2% — Apr 2025".`;
+Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. CRITICAL: Each value must be the ACTUAL DATA for that field — never copy a field name or the label of a neighboring field into a value. For example "currentOwner" must be an owner's name (e.g. "Meridian Parke LLC"), never "Ownership Entity Type"; "assessedLandValue" must be a dollar amount, never "Assessed Improvements". If you don't have the real value, write exactly "Verify Before Report". tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}]. For econ fields use plain numbers/strings like "4.2" or "4.2% — Apr 2025".`;
 
   // One full attempt = up to 6 pause_turn continuations (web search can pause
   // many times). Returns one of:
@@ -1199,7 +1245,7 @@ Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull Fr
       else res = {...res2, note: res2.note + ' (2 attempts)'};
     }
 
-    if (res.kind === 'ok') return {assessor: res.assessor};
+    if (res.kind === 'ok') return {assessor: sanitizeAssessor(res.assessor)};
     // Failed — return a diagnostic note that surfaces in the banner AND workbook
     const finalNote = res.note + (res.kind==='terminal' ? '' : ' — enter records manually in Action Items.');
     return {assessor:{note:finalNote, stopReason:res.sr}, assessorError: finalNote};
@@ -1445,9 +1491,11 @@ function renderPublicData() {
 
   // Demographics
   html += sec('👥 Demographics (Census ACS 2023)');
-  if (d.censusBlocked) {
-    html += `<div class="manual-flag">⚠ Census API unavailable. Look up at <a href="https://data.census.gov" target="_blank">data.census.gov</a> — search ${escHtml(d.countyName||'')}. Also: <a href="https://www.stats.indiana.edu/topic/economic.asp" target="_blank">IBRC Indiana Stats</a> for major employers & economic drivers.</div>`;
+  const haveDemog = co.pop || co.medHHIncome;
+  if (!haveDemog) {
+    html += `<div class="manual-flag">⚠ Demographics could not be retrieved automatically. Look up at <a href="https://data.census.gov" target="_blank">data.census.gov</a> — search ${escHtml(d.countyName||'')}. Also: <a href="https://www.stats.indiana.edu/topic/economic.asp" target="_blank">IBRC Indiana Stats</a> for major employers & economic drivers.</div>`;
   } else {
+    if (d.censusViaSearch) html += `<div class="manual-flag">ℹ Sourced via web search (Census API was unavailable) — verify figures against <a href="https://data.census.gov" target="_blank">data.census.gov</a> before report.</div>`;
     html += row(d.countyName+' Population', fmt(co.pop), 'public');
     html += row(d.countyName+' Median HH Income', fmt(co.medHHIncome,'$'), 'public');
     html += row(d.countyName+' Median Gross Rent', fmt(co.medGrossRent,'$'), 'public');
@@ -2024,6 +2072,14 @@ async function downloadExcel() {
           wn(6, 10, natIncome);  // US 2023 (col K)
         }
 
+        // Trim runaway column metadata. The xlsx-style fork expands !cols to all
+        // 16,384 Excel columns on write (~980KB of <col> tags per sheet). Keep only
+        // the columns within the used range so the workbook stays small.
+        if (Array.isArray(ws['!cols']) && ws['!cols'].length > 64 && ws['!ref']) {
+          const usedCols = XLSX.utils.decode_range(ws['!ref']).e.c;
+          ws['!cols'] = ws['!cols'].slice(0, usedCols + 1);
+        }
+
         XLSX.utils.book_append_sheet(wb, ws, shName);
       }
     }
@@ -2596,10 +2652,11 @@ async function downloadExcel() {
     ]);
   }
 
-  // Download
+  // Download — compression:true enables DEFLATE (default is off in this SheetJS fork),
+  // which shrinks the workbook dramatically (XML compresses ~10x)
   const safeName = (d.address||'Property').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_').slice(0,40);
   setWorkflowStep(5);
-  XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`);
+  XLSX.writeFile(wb, `CRE_Research_${safeName}.xlsx`, {compression:true});
 }
 
 
@@ -2664,7 +2721,7 @@ function renderNotes() {
   html += `<div class="notes-section-label">🔌 API Status</div>`;
   const apis = [
     {name:'OpenStreetMap Geocoder', ok:!!d.lat, source:'nominatim.openstreetmap.org'},
-    {name:'Census ACS Demographics', ok:!!d.census?.county?.pop, source:'api.census.gov'},
+    {name:'Census ACS Demographics', ok:!!d.census?.county?.pop, source:d.censusViaSearch?'web search (Census API blocked)':'api.census.gov'},
     {name:'BLS Unemployment', ok:!!bls.blsCounty, source:'api.bls.gov'},
     {name:'FEMA Flood Zone + FIRM', ok:!!f.zone, source:'hazards.fema.gov'},
     {name:'US Treasury Rates', ok:!!d.treasury?.y10, source:'home.treasury.gov / FRED'},
