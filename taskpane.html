@@ -236,6 +236,12 @@
   <button class="btn btn-sm btn-success w-100" onclick="saveRegridToken()">Save Token</button>
   <div id="regridSavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ Token saved</div>
 
+  <div class="section-header mt-3">Parcel GIS Endpoint (advanced, optional)</div>
+  <p style="font-size:11px;color:#555;">Free parcel data source. If the built-in Indiana parcel lookup comes back empty, paste the ArcGIS parcel layer REST URL here (ends in <code>/FeatureServer/0</code> or <code>/MapServer/0</code>). Leave blank to use the built-in defaults.</p>
+  <input type="text" id="parcelGisInput" class="form-control form-control-sm mb-2" placeholder="https://…/FeatureServer/0"/>
+  <button class="btn btn-sm btn-success w-100" onclick="saveParcelGis()">Save Endpoint</button>
+  <div id="parcelGisSavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ Endpoint saved</div>
+
   <div class="section-header mt-3">Quick Reference</div>
   <p style="font-size:11px;color:#555;line-height:1.9;">
     <strong>① Enter address</strong> → click Research<br>
@@ -337,12 +343,15 @@ let publicData = {};
 let costarData = {};
 let apiKey = '';
 let regridToken = '';
+let parcelGisUrl = '';
 
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('cre_api_key');
   if (saved) { apiKey = saved; document.getElementById('apiKeyInput').value = saved; }
   const rt = localStorage.getItem('cre_regrid_token');
   if (rt) { regridToken = rt; document.getElementById('regridTokenInput').value = rt; }
+  const pg = localStorage.getItem('cre_parcel_gis_url');
+  if (pg) { parcelGisUrl = pg; document.getElementById('parcelGisInput').value = pg; }
   // Show help panel on first visit
   if (!localStorage.getItem('cre_help_dismissed')) {
     document.getElementById('helpPanel').style.display = '';
@@ -381,6 +390,13 @@ function saveRegridToken() {
   localStorage.setItem('cre_regrid_token', regridToken);
   document.getElementById('regridSavedMsg').style.display = 'block';
   setTimeout(() => document.getElementById('regridSavedMsg').style.display = 'none', 2000);
+}
+
+function saveParcelGis() {
+  parcelGisUrl = document.getElementById('parcelGisInput').value.trim().replace(/\/query.*$/i,'').replace(/\/+$/,'');
+  localStorage.setItem('cre_parcel_gis_url', parcelGisUrl);
+  document.getElementById('parcelGisSavedMsg').style.display = 'block';
+  setTimeout(() => document.getElementById('parcelGisSavedMsg').style.display = 'none', 2000);
 }
 
 // ── FREE: Indiana statewide GIS parcel layer (ArcGIS REST) ────────────────────
@@ -426,7 +442,9 @@ function mapParcelAttrs(attrs) {
 async function fetchParcelGIS(lat, lon) {
   if (!lat || !lon) return { parcelGis: null };
   const qs = `/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
-  for (const base of PARCEL_GIS_ENDPOINTS) {
+  // User-configured endpoint (from Settings) takes priority over the built-in guesses.
+  const endpoints = parcelGisUrl ? [parcelGisUrl, ...PARCEL_GIS_ENDPOINTS] : PARCEL_GIS_ENDPOINTS;
+  for (const base of endpoints) {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -3169,6 +3187,8 @@ function tplPopulateActList(ws, listingsData, countyName) {
   const COLS = 'ABCDEFGHIJKLMNOPQR'.split('');
   // Wipe every example/calc cell in rows 2–30 (data + AVERAGES + adjustment cols).
   for (let r=2; r<=30; r++) COLS.forEach(c => clr(c+r));
+  // Also remove header-row leftovers past column L (e.g. the orphaned "750" constant).
+  ['M','N','O','P','Q','R'].forEach(c => clr(c+'1'));
   const county = String(countyName||'').replace(/\s+County/i,'').trim();
   const listings = listingsData ? (Array.isArray(listingsData)?listingsData:[listingsData]) : [];
   if (!listings.length) return; // examples cleared; nothing to add
