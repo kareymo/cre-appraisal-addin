@@ -1833,20 +1833,30 @@ async function downloadExcel() {
   {
     const isMarion = d.countyFips === '097';
     const parcel = (!NV(a.parcelNumber)) ? a.parcelNumber : null;
-    const assessorURL = isMarion ? 'https://assessor.indy.gov/' : 'https://gateway.ifionline.org/assessedValue/';
+    // The Indiana assessor/tax/listing portals can't be deep-linked to a specific
+    // parcel by URL — a bare portal link just dumps the user on a search homepage.
+    // Pre-filled Google searches (address + parcel + intent) reliably surface the
+    // exact record page as the top result, so the links land in the right place.
+    const gs = q => `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+    const addrStr = d.address || '';
+    const parcelOrAddr = parcel || addrStr;
+    const county = d.countyName || 'Indiana';
+    const assessorURL = isMarion
+      ? gs(`${addrStr} Marion County Indiana assessor property record card`)
+      : gs(`${parcelOrAddr} ${county} Indiana assessor property record card`);
     const assessorText = parcel
-      ? (isMarion ? `assessor.indy.gov — search: ${parcel}` : `Indiana Gateway — search: ${parcel}`)
-      : (isMarion ? 'assessor.indy.gov — search address' : 'Indiana Gateway — search address');
-    const taxURL = isMarion ? 'https://www.indy.gov/activity/view-pay-property-taxes' : 'https://gateway.ifionline.org/taxBill/';
-    const salesDiscURL = 'https://secure.in.gov/apps/dlgf/sdf/';
-    const loopnetURL = 'https://www.loopnet.com/';
-    const censusURL = 'https://data.census.gov/';
-    const blsURL = 'https://www.bls.gov/lau/';
+      ? (isMarion ? `Search: ${parcel} Marion County assessor` : `Search: ${parcel} ${county} assessor`)
+      : (isMarion ? 'Search: address + Marion County assessor' : `Search: address + ${county} assessor`);
+    const taxURL       = gs(`${parcelOrAddr} ${county} Indiana property tax bill`);
+    const salesDiscURL = gs(`${parcelOrAddr} ${county} Indiana sales disclosure transfer history`);
+    const loopnetURL   = gs(`site:loopnet.com ${addrStr}`);
+    const censusURL    = gs(`${county} Indiana population median household income census ACS`);
+    const blsURL       = gs(`${county} Indiana unemployment rate BLS LAUS`);
     const ibrcURL = 'https://www.stats.indiana.edu/topic/economic.asp';
-    const zoningURL = isMarion ? 'https://maps.indy.gov/indygis/' :
-      `https://www.google.com/search?q=${encodeURIComponent(d.countyName+' Indiana zoning GIS map planning department')}`;
-    const zoningText = isMarion ? 'IndyGIS — search address → Zoning layer'
-      : `Search: ${d.countyName} zoning map → county planning portal`;
+    const zoningURL = isMarion ? gs(`${addrStr} Indianapolis zoning`)
+      : gs(`${addrStr} ${county} Indiana zoning map planning department`);
+    const zoningText = isMarion ? 'Search: address + Indianapolis zoning'
+      : `Search: ${county} zoning map → county planning portal`;
 
     const aiRows = [
       ['0 - ACTION ITEMS   ←  TYPE HERE TO UPDATE ALL REPORT SHEETS','','',''],
@@ -1933,7 +1943,7 @@ async function downloadExcel() {
     chk('Property Summary','Permitted Uses', 'Zoning ordinance — check county/city code', zoningURL, a.permittedUses);
     chk('Property Summary','Overlay Districts', 'County/city zoning GIS map', zoningURL, a.overlayDistricts);
     chk('Property Summary','Future Land Use', 'County comprehensive plan — GIS portal', zoningURL, a.futureLandUse);
-    chk('Property Summary','TIF District', parcel?`Indiana DLGF / Google: "${parcel} TIF district Indiana"`:'Indiana DLGF / Google search', 'https://www.in.gov/dlgf/', a.tifIndicator);
+    chk('Property Summary','TIF District', `Search: ${parcelOrAddr} ${county} TIF district`, gs(`${parcelOrAddr} ${county} Indiana TIF district redevelopment`), a.tifIndicator);
     chk('Property Summary','Assessed Land Value', assessorText+' → Assessment Values tab → Land row', assessorURL, a.assessedLandValue);
     chk('Property Summary','Assessed Improvements', assessorText+' → Assessment Values tab → Impr. row', assessorURL, a.assessedImprovementValue);
     chk('Property Summary','Total Assessed Value', assessorText+' → Assessment Values tab → Total row', assessorURL, a.assessedTotalValue);
@@ -1986,12 +1996,18 @@ async function downloadExcel() {
       if (!a.tenants?.length) missing.push(['Multifamily','Rent Roll','Paste full rent roll in Tab 3 → re-download','']);
     }
 
+    // Collect real hyperlinks to attach after the sheet is built. HYPERLINK()
+    // formulas written by this library don't render as clickable in Excel; a
+    // real worksheet hyperlink (cell.l) does. We store the display text as the
+    // cell value and attach the link by cell reference below.
+    const linkCells = [];
     if (missing.length > 0) {
       aiRows.push(['── RESEARCH DATA STILL NEEDED — click link in column C to open source ──','','','']);
       aiRows.push(['Sheet','Field','🔗 Click to Open Source (then search as noted)','✏ Enter Value Here']);
       missing.forEach(([sheet, field, linkText, url]) => {
-        const cellC = url ? { f: `HYPERLINK("${url}","${linkText.replace(/"/g,"'")}")` } : linkText;
-        aiRows.push([sheet, field, cellC, '']);
+        const rowIdx = aiRows.length; // 0-based row of the row we're about to push
+        aiRows.push([sheet, field, linkText || '', '']);
+        if (url) linkCells.push({ addr: XLSX.utils.encode_cell({ r: rowIdx, c: 2 }), url, text: linkText });
       });
     } else {
       aiRows.push(['✅ All data fields auto-populated!','','','']);
@@ -2008,6 +2024,11 @@ async function downloadExcel() {
 
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
     ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
+    // Attach real, clickable Excel hyperlinks (cell.l) to the research-source cells.
+    linkCells.forEach(({addr, url, text}) => {
+      const cell = ws0[addr] || (ws0[addr] = { t: 's', v: text || url });
+      cell.l = { Target: url, Tooltip: text || url };
+    });
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
   }
 
