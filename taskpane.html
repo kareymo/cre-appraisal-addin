@@ -229,6 +229,13 @@
   <input type="password" id="apiKeyInput" class="form-control form-control-sm mb-2" placeholder="sk-ant-…"/>
   <button class="btn btn-sm btn-success w-100" onclick="saveApiKey()">Save Key</button>
   <div id="apiKeySavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ Key saved</div>
+
+  <div class="section-header mt-3">Regrid Parcel Data Token (optional)</div>
+  <p style="font-size:11px;color:#555;">Auto-fills parcel #, owner, assessed values, taxes, year built, acreage, zoning &amp; last sale — the fields the assessor lookup usually can't. Get a token at <a href="https://regrid.com/api" target="_blank">regrid.com/api</a> (paid; a few cents per property). Leave blank to skip.</p>
+  <input type="password" id="regridTokenInput" class="form-control form-control-sm mb-2" placeholder="Regrid API token…"/>
+  <button class="btn btn-sm btn-success w-100" onclick="saveRegridToken()">Save Token</button>
+  <div id="regridSavedMsg" class="text-success mt-1" style="font-size:11px;display:none">✓ Token saved</div>
+
   <div class="section-header mt-3">Quick Reference</div>
   <p style="font-size:11px;color:#555;line-height:1.9;">
     <strong>① Enter address</strong> → click Research<br>
@@ -329,10 +336,13 @@ let geoResult = null;
 let publicData = {};
 let costarData = {};
 let apiKey = '';
+let regridToken = '';
 
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('cre_api_key');
   if (saved) { apiKey = saved; document.getElementById('apiKeyInput').value = saved; }
+  const rt = localStorage.getItem('cre_regrid_token');
+  if (rt) { regridToken = rt; document.getElementById('regridTokenInput').value = rt; }
   // Show help panel on first visit
   if (!localStorage.getItem('cre_help_dismissed')) {
     document.getElementById('helpPanel').style.display = '';
@@ -364,6 +374,115 @@ function saveApiKey() {
   localStorage.setItem('cre_api_key', apiKey);
   document.getElementById('apiKeySavedMsg').style.display = 'block';
   setTimeout(() => document.getElementById('apiKeySavedMsg').style.display = 'none', 2000);
+}
+
+function saveRegridToken() {
+  regridToken = document.getElementById('regridTokenInput').value.trim();
+  localStorage.setItem('cre_regrid_token', regridToken);
+  document.getElementById('regridSavedMsg').style.display = 'block';
+  setTimeout(() => document.getElementById('regridSavedMsg').style.display = 'none', 2000);
+}
+
+// ── FREE: Indiana statewide GIS parcel layer (ArcGIS REST) ────────────────────
+// Queries a parcel FeatureServer/MapServer by point → returns parcel attributes
+// (owner, acreage, assessed value, year built, zoning, land use). Tries several
+// candidate statewide endpoints; the exact URL can be pinned once confirmed live.
+const PARCEL_GIS_ENDPOINTS = [
+  'https://gisdata.in.gov/server/rest/services/Hosted/Statewide_Parcels/FeatureServer/0',
+  'https://gisdata.in.gov/arcgis/rest/services/Statewide_Parcels/MapServer/0',
+  'https://gis.in.gov/arcgis/rest/services/Parcels/Statewide_Parcels/MapServer/0'
+];
+// Flexible attribute mapper: parcel-layer field names vary by source, so match
+// each target field by scanning attribute keys for known patterns.
+function mapParcelAttrs(attrs) {
+  const keys = Object.keys(attrs || {});
+  const norm = k => k.toLowerCase().replace(/[^a-z0-9]/g,'');
+  const find = (...pats) => {
+    for (const p of pats) {
+      const k = keys.find(k => norm(k) === p);
+      if (k && attrs[k] != null && String(attrs[k]).trim() !== '') return attrs[k];
+    }
+    for (const p of pats) {
+      const k = keys.find(k => norm(k).includes(p));
+      if (k && attrs[k] != null && String(attrs[k]).trim() !== '') return attrs[k];
+    }
+    return '';
+  };
+  const num = v => { const n = parseFloat(String(v ?? '').replace(/[,$%\s]/g,'')); return isFinite(n) ? n : ''; };
+  const a = {}; const put = (k,v) => { if (v!=='' && v!=null) a[k]=v; };
+  put('parcelNumber',            find('parcelid','parcelnumber','parcelnumb','parcelno','parcelnum','pin','stateparcelid','parcel'));
+  put('currentOwner',            find('ownername','owner','owner1','deededowner','taxpayer','ownernme'));
+  put('assessedTotalValue',      num(find('totalav','assessedvalue','totalvalue','assdvalue','avtotal','totassd','totalassessedvalue')));
+  put('assessedLandValue',       num(find('landvalue','landav','assdland','landassessed')));
+  put('assessedImprovementValue',num(find('improvementvalue','imprav','bldgvalue','improvementav','impvalue')));
+  put('annualTaxes',             num(find('taxamount','taxes','annualtax','taxbill','nettax')));
+  put('yearBuilt',               find('yearbuilt','yrblt','yrbuilt'));
+  put('zoning',                  find('zoning','zone','zoningcode','zonecode'));
+  put('propertyClass',           find('propertyclass','landuse','propclass','useclass','classcode','usecode','landusecode'));
+  const acres = num(find('acreage','acres','gisacres','deededacres','legalacre','calcacres'));
+  if (acres!=='') { put('landArea', acres); put('landAreaSF', Math.round(acres*43560)); }
+  return a;
+}
+async function fetchParcelGIS(lat, lon) {
+  if (!lat || !lon) return { parcelGis: null };
+  const qs = `/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
+  for (const base of PARCEL_GIS_ENDPOINTS) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch(base + qs, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!r.ok) continue;
+      const d = await r.json();
+      const attrs = d?.features?.[0]?.attributes;
+      if (!attrs) continue;
+      const mapped = mapParcelAttrs(attrs);
+      if (Object.keys(mapped).length) return { parcelGis: mapped, parcelGisSource: base };
+    } catch (e) { /* try next endpoint */ }
+  }
+  return { parcelGis: null };
+}
+
+// Regrid parcel API — nationwide parcel records keyed by lat/lon. Returns a
+// {assessor:{...}} partial that fills the exact fields the assessor web-search
+// usually can't (owner, assessed values, taxes, year built, acreage, zoning, sale).
+// Regrid's "standardized schema" lives in feature.properties.fields.
+async function fetchRegrid(lat, lon) {
+  if (!regridToken || !lat || !lon) return { regrid: null };
+  try {
+    const url = `https://app.regrid.com/api/v2/parcels/point?lat=${lat}&lon=${lon}&token=${encodeURIComponent(regridToken)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 9000);
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!r.ok) return { regrid: null, regridError: `Regrid HTTP ${r.status}` };
+    const d = await r.json();
+    const feat = d?.parcels?.features?.[0] || d?.features?.[0];
+    const f = feat?.properties?.fields || feat?.properties || null;
+    if (!f) return { regrid: null };
+    const num = v => { const n = parseFloat(String(v ?? '').replace(/[,$%\s]/g,'')); return isFinite(n) ? n : ''; };
+    const acres = num(f.ll_gisacre ?? f.gisacre ?? f.deeded_acres);
+    const a = {};
+    const put = (k, v) => { if (v !== '' && v !== null && v !== undefined) a[k] = v; };
+    put('parcelNumber',            f.parcelnumb || f.parcelnumb_no_formatting);
+    put('currentOwner',            f.owner);
+    put('assessedLandValue',       num(f.landval));
+    put('assessedImprovementValue',num(f.improvval));
+    put('assessedTotalValue',      num(f.parval));
+    put('assessedValueYear',       f.taxyear || f.parvaltype);
+    put('annualTaxes',             num(f.taxamt));
+    put('yearBuilt',               f.yearbuilt);
+    put('zoning',                  f.zoning);
+    put('zoningDescription',       f.zoning_description);
+    put('propertyClass',           f.usedesc);
+    put('currentUse',              f.usedesc);
+    put('lastSalePrice',           num(f.saleprice));
+    put('lastSaleDate',            f.saledate);
+    if (acres !== '') { put('landArea', acres); put('landAreaSF', Math.round(acres * 43560)); }
+    // Building footprint SF (note: footprint, not always GLA — a useful floor)
+    put('buildingFootprintSF',     num(f.ll_bldg_footprint_sqft));
+    return { regrid: a, regridRaw: f };
+  } catch (e) { return { regrid: null, regridError: e.message }; }
 }
 
 function showTab(name) {
@@ -504,12 +623,15 @@ async function startResearch() {
     }
     log('Gathering market and property data…');
 
-    const [censusR, blsR, treasuryR, femaR, assessorR] = await Promise.allSettled([
+    log('Looking up parcel record…');
+    const [censusR, blsR, treasuryR, femaR, assessorR, gisR, regridR] = await Promise.allSettled([
       fetchCensusACS(countyFips, cousub),
       fetchBLS(countyFips, msaInfo),
       fetchTreasury(),
       fetchFEMA(lat, lon),
-      fetchAssessorData(address, matchedAddress, countyFips, countyName)
+      fetchAssessorData(address, matchedAddress, countyFips, countyName),
+      fetchParcelGIS(lat, lon),
+      fetchRegrid(lat, lon)
     ]);
 
     if (censusR.status==='fulfilled') { Object.assign(publicData, censusR.value); }
@@ -524,6 +646,32 @@ async function startResearch() {
     }
     if (assessorR.status==='fulfilled'){ Object.assign(publicData, assessorR.value);
       log('Property records retrieved.');
+      // Merge FREE Indiana GIS parcel data — overrides the AI web-search blanks.
+      if (gisR.status==='fulfilled' && gisR.value?.parcelGis) {
+        publicData.assessor = publicData.assessor || {};
+        const gp = gisR.value.parcelGis;
+        for (const [k,v] of Object.entries(gp)) if (v!=='' && v!=null) publicData.assessor[k] = v;
+        publicData.parcelGisUsed = true;
+        log(`✅ Parcel record from Indiana GIS (${Object.keys(gp).length} fields).`);
+      } else {
+        log('⚠ Indiana GIS parcel layer returned nothing — will rely on manual entry / Regrid.');
+      }
+      // Merge Regrid parcel data — authoritative for the fields it provides, so it
+      // OVERRIDES the AI web-search values (which are often blank/uncertain). Only
+      // overrides where Regrid actually has a value; leaves everything else intact.
+      if (regridR.status==='fulfilled' && regridR.value?.regrid) {
+        publicData.assessor = publicData.assessor || {};
+        const rg = regridR.value.regrid;
+        for (const [k,v] of Object.entries(rg)) {
+          if (v !== '' && v !== null && v !== undefined) publicData.assessor[k] = v;
+        }
+        publicData.regridUsed = true;
+        log(`✅ Parcel record from Regrid (${Object.keys(rg).length} fields incl. owner, assessed value, taxes).`);
+      } else if (regridToken && regridR.status==='fulfilled' && regridR.value?.regridError) {
+        log('⚠ Regrid lookup: ' + regridR.value.regridError);
+      } else if (regridToken) {
+        log('⚠ Regrid returned no parcel at this point — verify manually.');
+      }
       // Back-fill census/bls/treasury from Claude's econ data if APIs were blocked
       const econ = publicData.assessor?.econ || {};
       // Extract first number only — "165,686 (2023)" must not become 1656862023
@@ -549,20 +697,18 @@ async function startResearch() {
           log('Demographics sourced via web search.');
         }
       }
-      // Always back-fill individual BLS fields the API didn't return
-      if (econ.msaUnemployRate && !publicData.bls?.blsMSA) {
+      // Back-fill EACH BLS level independently — the API often returns county+MSA
+      // but not state/national (or vice-versa). Gating all four on "county missing"
+      // (the old bug) left Indiana & US blank whenever the county rate came through.
+      {
         const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
         publicData.bls = publicData.bls || {};
-        publicData.bls.blsMSA = {value:toRate(econ.msaUnemployRate), period:econ.msaUnemployPeriod||''};
-      }
-      if (econ.countyUnemployRate && !publicData.bls?.blsCounty) {
-        const toRate = s => { const n=parseFloat(String(s)); return isNaN(n)?null:n; };
-        publicData.bls = publicData.bls || {};
-        if (econ.countyUnemployRate)   publicData.bls.blsCounty   = {value:toRate(econ.countyUnemployRate),   period:econ.countyUnemployPeriod||''};
-        if (econ.msaUnemployRate)      publicData.bls.blsMSA      = {value:toRate(econ.msaUnemployRate),      period:econ.msaUnemployPeriod||''};
-        if (econ.stateUnemployRate)    publicData.bls.blsState    = {value:toRate(econ.stateUnemployRate),    period:econ.stateUnemployPeriod||''};
-        if (econ.nationalUnemployRate) publicData.bls.blsNational = {value:toRate(econ.nationalUnemployRate), period:econ.nationalUnemployPeriod||''};
-        log('Unemployment rates sourced via web search.');
+        const bl = publicData.bls;
+        if (econ.countyUnemployRate    && !bl.blsCounty)   bl.blsCounty   = {value:toRate(econ.countyUnemployRate),    period:econ.countyUnemployPeriod||''};
+        if (econ.msaUnemployRate       && !bl.blsMSA)      bl.blsMSA      = {value:toRate(econ.msaUnemployRate),       period:econ.msaUnemployPeriod||''};
+        if (econ.stateUnemployRate     && !bl.blsState)    bl.blsState    = {value:toRate(econ.stateUnemployRate),     period:econ.stateUnemployPeriod||''};
+        if (econ.nationalUnemployRate  && !bl.blsNational) bl.blsNational = {value:toRate(econ.nationalUnemployRate),  period:econ.nationalUnemployPeriod||''};
+        if (econ.stateUnemployRate || econ.nationalUnemployRate || econ.countyUnemployRate) log('Unemployment rates sourced via web search.');
       }
       if (econ.treasury10yr && !publicData.treasury?.y10) {
         publicData.treasury = publicData.treasury || {};
@@ -813,6 +959,25 @@ async function tryArcGIS(addr) {
            lat:parseFloat(c.location.y), lon:parseFloat(c.location.x), matchedAddress:c.address||'' };
 }
 
+// Resolve county from coordinates via the FCC Census Area API — a reliable US-gov
+// endpoint (CORS-friendly, no rate limit) that returns county FIPS directly. This
+// removes the Nominatim dependency for county lookup (Nominatim rate-limits).
+async function fccCounty(lat, lon) {
+  const d = await _geoFetch(`https://geo.fcc.gov/api/census/area?lat=${lat}&lon=${lon}&censusYear=2020&format=json`);
+  const res = d?.results?.[0];
+  if (!res) return null;
+  const stateFips = String(res.state_fips||'');
+  const inIndiana = stateFips === '18' || String(res.state_code||'').toUpperCase() === 'IN';
+  const co3 = String(res.county_fips||'').slice(-3);           // 18097 → 097
+  const rawName = String(res.county_name||'').toLowerCase().replace(' county','').trim();
+  const info = INDIANA_COUNTIES[rawName];
+  return {
+    inIndiana,
+    countyFips: info ? info.fips : (inIndiana && co3.length===3 ? co3 : null),
+    countyName: info ? info.name : (res.county_name ? res.county_name+(/county/i.test(res.county_name)?'':' County') : '')
+  };
+}
+
 // Reverse geocode coordinates → county/city. Returns null (not throw) if non-Indiana.
 async function nominatimReverse(lat, lon, fallbackAddress) {
   const d = await _geoFetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
@@ -874,38 +1039,55 @@ async function geocodeAddress(address) {
 
   const safe = async fn => { try { return await fn(); } catch(e) { return null; } };
 
-  // 1. Nominatim forward — full address detail; trust only Indiana hits
-  for (const v of variants) {
-    const r = await safe(() => tryNominatim(v));
-    if (!r) continue;
-    if (r.inIndiana) return r;      // rooftop-precise Indiana match
-    sawNonIndiana = true;           // matched, but elsewhere — remember, keep trying
-  }
-
-  // 2. Census TIGER locations (prefers abbreviated forms like SR-135)
-  log('Trying Census geocoder…');
+  // Provider order favors RELIABILITY: ArcGIS + Census rarely rate-limit; Nominatim
+  // (OpenStreetMap) does, so it's the backup. County is resolved from coordinates
+  // via the FCC API (reliable) rather than a Nominatim reverse lookup.
   let coords = null;
+
+  // 1. ArcGIS World Geocoding — reliable, great on highway/rural addresses
   for (const v of variants) {
-    const c = await safe(() => tryCensus(v));
+    const c = await safe(() => tryArcGIS(v));
     if (!c) continue;
     if (c.inIndiana) { coords = c; break; }
     sawNonIndiana = true;
   }
 
-  // 3. ArcGIS World Geocoding — best at US highway/rural addresses
+  // 2. Census TIGER locations
   if (!coords) {
-    log('Trying ArcGIS geocoder…');
+    log('Trying Census geocoder…');
     for (const v of variants) {
-      const c = await safe(() => tryArcGIS(v));
+      const c = await safe(() => tryCensus(v));
       if (!c) continue;
       if (c.inIndiana) { coords = c; break; }
       sawNonIndiana = true;
     }
   }
 
-  // If we have Indiana coords, confirm county/city via reverse geocode
+  // 3. Nominatim forward (backup) — returns full detail incl. county in one call
+  if (!coords) {
+    log('Trying OpenStreetMap geocoder…');
+    for (const v of variants) {
+      const r = await safe(() => tryNominatim(v));
+      if (!r) continue;
+      if (r.inIndiana && r.countyFips) return r; // complete Indiana match
+      if (r.inIndiana) { coords = r; break; }    // has coords but no county → resolve below
+      sawNonIndiana = true;
+    }
+  }
+
+  // If we have Indiana coords, resolve county via FCC (reliable), then Nominatim reverse.
   if (coords) {
     log('Verifying location…');
+    if (!coords.countyFips) {
+      const fcc = await safe(() => fccCounty(coords.lat, coords.lon));
+      if (fcc && fcc.inIndiana && fcc.countyFips) {
+        return { lat:coords.lat, lon:coords.lon, countyFips:fcc.countyFips, cousub:null,
+                 matchedAddress:coords.matchedAddress||address, countyName:fcc.countyName, city:coords.city||'' };
+      }
+      if (fcc && !fcc.inIndiana) sawNonIndiana = true;
+    } else {
+      return coords; // Nominatim backup already provided county
+    }
     const rev = await safe(() => nominatimReverse(coords.lat, coords.lon, coords.matchedAddress));
     if (rev) return rev;            // confirmed Indiana
     // reverse said non-Indiana — fall through to ZIP/city fallback below
@@ -1794,6 +1976,73 @@ function resolveField(item, header) {
   return safeStr(v);
 }
 
+// Traceability: for each Action Items field (normalized label), where the value
+// flows when filled in. Derived from the actual VLOOKUP/cell formulas in the
+// report sheets (verified against generated workbooks). Shown in the "Appears In"
+// column so the appraiser can see downstream impact of each entry.
+const AI_DEST = {
+  // Report identification (→ Property Summary, then Reconciliation via Property Summary)
+  'appraiser name':'Property Summary; Reconciliation',
+  'effective date of appraisal':'Property Summary; Reconciliation',
+  'date of inspection':'Property Summary',
+  'client / intended user':'Property Summary',
+  'intended use':'Property Summary',
+  // Income Approach inputs
+  'market rent nnn ($/sf/yr)':'Income Approach report',
+  'market vacancy rate (%)':'Income Approach report',
+  'credit loss rate (%)':'Income Approach report',
+  'insurance ($/sf/yr)':'Income Approach report',
+  'property management (% of egi)':'Income Approach report',
+  'maintenance & repairs ($/sf/yr)':'Income Approach report',
+  'reserves for replacement ($/sf/yr)':'Income Approach report',
+  'other expenses ($/sf/yr)':'Income Approach report',
+  'selected cap rate':'Income Approach report',
+  '5-year sofr swap rate':'Market Rates → Income Approach',
+  '10-year sofr swap rate':'Market Rates sheet',
+  // Value conclusions
+  'sales comparison approach — indicated value':'Reconciliation + Comp Sales Grid',
+  'income approach — indicated value':'Reconciliation + Income Approach',
+  'cost approach — indicated value':'Reconciliation report',
+  'weight: sales comparison (%)':'Reconciliation report',
+  'weight: income approach (%)':'Reconciliation report',
+  'final market value (rounded)':'Reconciliation report',
+  'estimated exposure time':'Reconciliation report',
+  'estimated marketing time':'Reconciliation report',
+  // Research data (→ Property Summary; some also flow to reports)
+  'current owner':'Property Summary',
+  'property class / use':'Property Summary',
+  'land area (acres)':'Property Summary',
+  'year built':'Property Summary; Reconciliation',
+  'construction type':'Property Summary',
+  'condition':'Property Summary',
+  'zoning':'Property Summary',
+  'permitted uses':'Property Summary',
+  'overlay districts':'Property Summary',
+  'future land use':'Property Summary',
+  'tif district':'Property Summary',
+  'assessed land value':'Property Summary',
+  'assessed improvements':'Property Summary',
+  'total assessed value':'Property Summary',
+  'annual taxes':'Property Summary; Income Approach + Reconciliation',
+  'tax district':'Property Summary',
+  'last sale date':'Property Summary; Sales History',
+  'last sale price':'Property Summary; Sales History',
+  'listing price':'Property Summary',
+  'tenant':'Property Summary; Income Approach + Reconciliation',
+  'lease expiration':'Property Summary; Income Approach + Reconciliation',
+  'annual rent (nnn)':'Property Summary',
+  'legal description':'Property Summary',
+  'county population':'Demographics',
+  'county median hh income':'Demographics',
+  'county unemployment %':'Demographics',
+  'indiana median hh income':'Demographics',
+  'us median hh income':'Demographics',
+  'indiana unemployment %':'Demographics',
+  'us unemployment %':'Demographics',
+  'major employers / economic drivers':'Reference only (not linked)',
+  'population & employment trends':'Reference only (not linked)'
+};
+
 // ── DOWNLOAD EXCEL ────────────────────────────────────────────────────────────
 async function downloadExcel() {
   const wb = XLSX.utils.book_new();
@@ -2054,10 +2303,24 @@ async function downloadExcel() {
       const rn = i + 1;
       if (row[1]) { const k = _rk(row[1]); if (!(k in AI_ROW)) AI_ROW[k] = rn; }
       else if (row[0]) { const k = _rk(row[0]); if (!(k in AI_ROW)) AI_ROW[k] = rn; }
+      // Column E "→ Appears In": where the value in column D flows when filled.
+      // Header rows get a heading; single-value field rows get their destination.
+      // Comp-adjustment matrix rows (length > 4, Sale 1–7) are skipped so we don't
+      // overwrite their value cells.
+      if (row[3] === '✏ Enter Value Here') {
+        row[4] = '→ Appears In (report location)';
+      } else if (row[1] && row.length <= 4 && row[0] && !/^──|^Section$|^Sheet$/.test(String(row[0]))) {
+        row[4] = '→ ' + (AI_DEST[_rk(row[1])] || 'Property Summary');
+      }
+    });
+    // Tag the Sales/Tax History column-header rows with their destination sheet.
+    aiRows.forEach(row => {
+      if (row[0] === 'Date  (from Transfer History)') row[4] = '→ Sales History sheet';
+      if (row[0] === 'Tax Year  (March 1 assessment date)') row[4] = '→ Tax History sheet';
     });
 
     const ws0 = XLSX.utils.aoa_to_sheet(aiRows);
-    ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12}];
+    ws0['!cols'] = [{wch:22},{wch:32},{wch:52},{wch:30},{wch:44},{wch:12},{wch:12},{wch:12}];
     XLSX.utils.book_append_sheet(wb, ws0, '0 - Action Items');
   }
 
@@ -2221,6 +2484,7 @@ async function downloadExcel() {
         // Pre-populate comp data if CoStar data is available
         if (shName === 'Imprvd Sales')  tplPopulateSales(ws,  costarData.sales);
         if (shName === 'LeaseComps')    tplPopulateLeases(ws, costarData.leases);
+        if (shName === 'ACT List')      tplPopulateActList(ws, costarData.listings, d.countyName);
 
         // IN MSA sheet: write Indiana and US median HH income for 2023 (col K = c=10)
         // Rows: Indiana = r=5, United States = r=6 (0-indexed, matching template structure)
@@ -2892,6 +3156,51 @@ function tplPopulateLeases(ws, leasesData) {
   });
 }
 
+// Pre-fill dad's "ACT List" active-listing grid (row-per-listing). Clears the
+// template's leftover example comps + all calculation columns past L (M–R), keeps
+// only columns A–L, and pulls the researched active listings into them.
+function tplPopulateActList(ws, listingsData, countyName) {
+  if (!ws['!ref']) return;
+  const g = (o,...ff)=>{ for(const f of ff){const v=resolveField(o,f); if(v)return v;} return ''; };
+  const clr = ref => { if (ws[ref]) ws[ref] = {t:'s', v:'', w:''}; };
+  const S = (col,r,v)=>{ const ref=col+r; if(v===''||v==null){clr(ref);return;} ws[ref]={t:'s',v:String(v),w:String(v)}; };
+  const N = (col,r,v)=>{ const ref=col+r; const n=parseFloat(String(v).replace(/[,$%\s]/g,'')); if(isNaN(n)){clr(ref);return;} ws[ref]={t:'n',v:n,w:String(n)}; };
+  const F = (col,r,formula)=>{ ws[col+r]={t:'n',f:formula}; };
+  const COLS = 'ABCDEFGHIJKLMNOPQR'.split('');
+  // Wipe every example/calc cell in rows 2–30 (data + AVERAGES + adjustment cols).
+  for (let r=2; r<=30; r++) COLS.forEach(c => clr(c+r));
+  const county = String(countyName||'').replace(/\s+County/i,'').trim();
+  const listings = listingsData ? (Array.isArray(listingsData)?listingsData:[listingsData]) : [];
+  if (!listings.length) return; // examples cleared; nothing to add
+  let r = 2;
+  listings.slice(0,20).forEach((L,i) => {
+    const addr = g(L,'address');
+    const parts = addr.split(',').map(s=>s.trim());
+    const city = parts.length>=2 ? parts[1] : '';
+    S('A',r, i+1);                 // Comp No.
+    S('B',r, 'ACT');               // Date/status
+    S('C',r, addr);                // Address
+    S('D',r, city);                // City
+    S('E',r, county);              // County
+    N('F',r, g(L,'list price','list_price'));   // Listing Price
+    N('G',r, g(L,'bldg sf','building_sf','building sf')); // Bldg SF
+    F('H',r, `IFERROR(F${r}/G${r},"")`);        // Unadjusted Price/SF
+    const cap = g(L,'cap rate','cap_rate'); if (cap) S('J',r, cap);   // Listing OAR (cap rate)
+    // K = Major Tenant, L = WALT — carry over only if the export includes them
+    // (CoStar's basic active-listing export usually doesn't). True WALT is a
+    // SF-weighted remaining lease term that needs per-tenant lease-end dates.
+    const tenant = g(L,'major tenant','tenant','anchor'); if (tenant) S('K',r, tenant);
+    const walt = g(L,'walt','wault','remaining term','lease term'); if (walt) S('L',r, walt);
+    r++;
+  });
+  // Fresh AVERAGES row over the populated listings (columns F,G,H,J).
+  if (r > 2) {
+    const first=2, last=r-1, avr=r+1;
+    S('C',avr,'AVERAGES');
+    ['F','G','H','J'].forEach(c => F(c,avr, `IFERROR(AVERAGE(${c}${first}:${c}${last}),"")`));
+  }
+}
+
 
 // ── RENDER NOTES (type-specific) ──────────────────────────────────────────────
 function renderNotes() {
@@ -2910,6 +3219,8 @@ function renderNotes() {
     {name:'FEMA Flood Zone + FIRM', ok:!!f.zone, source:'hazards.fema.gov'},
     {name:'US Treasury Rates', ok:!!d.treasury?.y10, source:'home.treasury.gov / FRED'},
     {name:'Claude Assessor Lookup', ok:!!a.parcelNumber&&!NV(a.parcelNumber), source:'Indiana Gateway + LoopNet'},
+    {name:'Indiana GIS Parcel (free)', ok:!!d.parcelGisUsed, source:'gisdata.in.gov statewide parcels'},
+    {name:'Regrid Parcel Data', ok:!!d.regridUsed, source: regridToken ? 'app.regrid.com (owner, assessed value, taxes)' : 'no token — optional paid parcel data'},
   ];
   if (ptype==='Retail'||ptype==='Mixed-Use') {
     apis.push({name:'INDOT Traffic Counts', ok:!!indot.aadt&&indot.status==='found', source:'gis.indot.in.gov'});
