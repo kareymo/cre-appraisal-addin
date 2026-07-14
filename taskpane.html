@@ -1126,18 +1126,19 @@ C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate curr
 }
 Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull From CoStar" for type-specific physical data not publicly indexed. Use "Not Available — See Action Items" for data with no public source. NEVER fabricate values. tenants[] = [{name,suite,sf,leaseStart,leaseEnd,rent,leaseType,renewalOptions}]. transferHistory[] = [{date,price,buyer,seller,deedType,pricePerSF}]. For econ fields use plain numbers/strings like "4.2" or "4.2% — Apr 2025".`;
 
-  // Web search (12 uses) + the large JSON schema can blow past a small output
-  // budget before the model emits the final JSON. Give it real room, and if the
-  // model pauses to keep searching, continue the turn until it finishes.
-  try {
+  // One full attempt = up to 6 pause_turn continuations (web search can pause
+  // many times). Returns one of:
+  //   {kind:'ok', assessor}          → parsed JSON, done
+  //   {kind:'terminal', note}        → auth/credits/HTTP — do NOT retry
+  //   {kind:'empty', note, sr}       → 200 but no JSON — safe to retry
+  async function attempt() {
     const body = {
       model:'claude-sonnet-4-5', max_tokens:8000,
       tools:[{name:'web_search',type:'web_search_20250305',max_uses:12}],
       messages:[{role:'user',content:prompt}]
     };
-
     let d, lastText = '';
-    for (let turn = 0; turn < 4; turn++) {   // allow a few pause_turn continuations
+    for (let turn = 0; turn < 6; turn++) {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
         headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','content-type':'application/json'},
@@ -1145,47 +1146,62 @@ Rules: Use "Verify Before Report" if searched but couldn't confirm. Use "Pull Fr
       });
       d = await r.json();
 
-      // Surface API/HTTP errors (bad key, out of credits, rate limit, etc.)
       if (d.error) {
         const msg = d.error.message || d.error.type || 'Unknown API error';
         const type = d.error.type || '';
         let note = `API error: ${msg}`;
+        let retryable = false;
         if (type === 'authentication_error') note = 'Invalid API key — check Settings';
-        if (type === 'credit_balance_exceeded' || msg.toLowerCase().includes('credit')) note = 'Out of API credits — add credits at console.anthropic.com';
-        if (type === 'rate_limit_error') note = 'API rate limit hit — wait a moment and retry';
-        if (type === 'overloaded_error') note = 'Anthropic API temporarily overloaded — retry in a moment';
-        return {assessor:{note}, assessorError: note};
+        else if (type === 'credit_balance_exceeded' || msg.toLowerCase().includes('credit')) note = 'Out of API credits — add credits at console.anthropic.com';
+        else if (type === 'rate_limit_error') { note = 'API rate limit hit — waiting and retrying…'; retryable = true; }
+        else if (type === 'overloaded_error') { note = 'Anthropic API overloaded — retrying…'; retryable = true; }
+        return {kind: retryable ? 'empty' : 'terminal', note, sr:type};
       }
       if (!r.ok) {
-        const note = `API HTTP ${r.status} — ${r.statusText||'request failed'}`;
-        return {assessor:{note}, assessorError: note};
+        // 429/5xx are transient; 4xx (except 429) are terminal
+        const retryable = (r.status === 429 || r.status >= 500);
+        return {kind: retryable ? 'empty' : 'terminal', note:`API HTTP ${r.status} — ${r.statusText||'request failed'}`, sr:'http_'+r.status};
       }
 
-      // Try to parse JSON from any text block in this response
       for (const block of (d.content||[])) {
         if (block.type==='text' && block.text) {
           lastText = block.text;
           const m = block.text.match(/\{[\s\S]*\}/);
-          if (m) { try { return {assessor:JSON.parse(m[0])}; } catch(e){} }
+          if (m) { try { return {kind:'ok', assessor:JSON.parse(m[0])}; } catch(e){} }
         }
       }
 
-      // If the model paused to run more searches, feed its output back and continue
       if (d.stop_reason === 'pause_turn' && Array.isArray(d.content)) {
         body.messages.push({role:'assistant', content:d.content});
         continue;
       }
-      break; // any other stop_reason → done looping
+      break;
     }
-
-    // Got a 200 but no parseable JSON — report WHY instead of failing silently
     const sr = d?.stop_reason || 'unknown';
     let note;
-    if (sr === 'max_tokens')       note = 'Property lookup ran out of output space before finishing. Try again, or enter records manually.';
-    else if (sr === 'pause_turn')  note = 'Property lookup kept searching without returning results. Try again.';
-    else if (lastText)             note = 'Property lookup returned an unexpected format — enter records manually. Detail: ' + lastText.slice(0,160);
-    else                           note = 'Assessor lookup returned no usable data — use Indiana Gateway manually.';
-    return {assessor:{note, stopReason:sr}, assessorError: note};
+    if (sr === 'max_tokens')       note = 'Property lookup ran out of output space before finishing.';
+    else if (sr === 'pause_turn')  note = 'Property lookup kept searching without returning results.';
+    else if (lastText)             note = 'Property lookup returned an unexpected format. Detail: ' + lastText.slice(0,160);
+    else                           note = 'Assessor lookup returned no usable data.';
+    return {kind:'empty', note, sr};
+  }
+
+  try {
+    // Try up to 2 times — transient empties/rate-limits often clear on retry
+    let res = await attempt();
+    if (res.kind === 'empty') {
+      log('⚠ Property lookup failed once — retrying…');
+      await new Promise(r => setTimeout(r, 2500));
+      const res2 = await attempt();
+      if (res2.kind === 'ok') res = res2;
+      else if (res2.kind === 'terminal') res = res2;
+      else res = {...res2, note: res2.note + ' (2 attempts)'};
+    }
+
+    if (res.kind === 'ok') return {assessor: res.assessor};
+    // Failed — return a diagnostic note that surfaces in the banner AND workbook
+    const finalNote = res.note + (res.kind==='terminal' ? '' : ' — enter records manually in Action Items.');
+    return {assessor:{note:finalNote, stopReason:res.sr}, assessorError: finalNote};
 
   } catch(e){ return {assessor:{note:`Assessor fetch failed: ${e.message}`}, assessorError: e.message}; }
 }
@@ -1658,6 +1674,13 @@ async function downloadExcel() {
     const aiRows = [
       ['0 - ACTION ITEMS   ←  TYPE HERE TO UPDATE ALL REPORT SHEETS','','',''],
       [`Property: ${d.address||''}   |   Type: ${ptype}   |   ${d.researchDate||new Date().toLocaleDateString()}`, '','',''],
+    ];
+    // If the automated property lookup failed, make the reason visible in the file
+    if (d.assessorError) {
+      aiRows.push([`⚠ AUTOMATED PROPERTY LOOKUP DID NOT COMPLETE: ${d.assessorError}`, '','','']);
+      aiRows.push(['   → Parcel, owner, assessed values, zoning & tax data below must be entered manually.', '','','']);
+    }
+    aiRows.push(...[
       [''],
       ['⬛ HOW TO USE THIS SHEET: Fill in the yellow column D. Research Data = facts to look up. Appraiser Analysis = your professional conclusions.','','',''],
       ['Section','Field','Where to Find It','✏ Enter Value Here'],
@@ -1711,7 +1734,7 @@ async function downloadExcel() {
       ['Tax Year  (March 1 assessment date)','Annual Tax Bill (spring + fall)','Notes (deductions, exemptions)'],
       ['','',''],['','',''],['','',''],['','',''],['','',''],
       [''],
-    ];
+    ]);
 
     // Dynamic missing data section
     const missing = [];
