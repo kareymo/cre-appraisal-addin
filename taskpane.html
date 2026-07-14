@@ -1081,7 +1081,7 @@ For multi-tenant: extract FULL rent roll — all tenants with suite, SF, rent, l
 Search Google for the parcel number found in Search 1. Look for additional public records, TIF district confirmation, news about the property, or additional data sources.
 
 ━━━ SEARCH 9: DEMOGRAPHICS, UNEMPLOYMENT & TREASURY RATES ━━━
-A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income.
+A) Search: "${countyName} Indiana population median household income" — use data.census.gov, census.gov, or American Community Survey results. Find the most recent county population and median household income. ALSO search "Indiana median household income ACS 2023" and "United States median household income ACS 2023" — get the statewide Indiana and US national figures (e.g. Indiana ~$63,000, US ~$77,000).
 B) Search: "${countyName} Indiana unemployment rate" — use bls.gov/lau, then search "${(INDIANA_MSA[countyFips]?.name)||'Indianapolis'} MSA unemployment rate", "Indiana unemployment rate", and "US national unemployment rate". Get the most recent available rates with the time period (e.g., "4.2% — April 2025") for all four: county, MSA, state, national.
 C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate current" — get the current 10-year Treasury yield. Also get the 5-year and 2-year yields if available.
 
@@ -1116,6 +1116,7 @@ C) Search: "US Treasury 10-year yield today" OR "10-year Treasury note rate curr
   "taxHistory":[],
   "econ":{
     "countyPop":"","countyMedianHHIncome":"",
+    "stateMedianHHIncome":"","nationalMedianHHIncome":"",
     "countyUnemployRate":"","countyUnemployPeriod":"",
     "msaUnemployRate":"","msaUnemployPeriod":"",
     "stateUnemployRate":"","stateUnemployPeriod":"",
@@ -1533,9 +1534,14 @@ async function parseCoStarData() {
       });
       const d = await r.json();
       const text = d.content?.[0]?.text||'';
-      const match = text.match(/[\[{][\s\S]*[\]}]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]);
+      // Prefer [...] over {...} — Haiku sometimes wraps results in {"data":[...]}
+      // which causes loose field matching to return "[object Object]"
+      let parsed;
+      const mArr = text.match(/\[[\s\S]*\]/);
+      const mObj = text.match(/\{[\s\S]*\}/);
+      try { if (mArr) parsed = JSON.parse(mArr[0]); } catch(e) { parsed = undefined; }
+      if (!parsed) { try { if (mObj) parsed = JSON.parse(mObj[0]); } catch(e) { parsed = undefined; } }
+      if (parsed) {
         costarData[s.key] = parsed;
         // Merge rent roll into assessor tenants
         if (isRentRoll && Array.isArray(parsed)) {
@@ -1595,15 +1601,25 @@ const FIELD_ALIASES = {
   'broker':['broker','listing_broker','agent'],
 };
 function resolveField(item, header) {
+  const safeStr = v => {
+    if (v === null || v === undefined) return '';
+    if (Array.isArray(v)) return v.map(x => (x && typeof x === 'object') ? (x.name||x.value||x.text||'') : String(x)).join(', ');
+    if (typeof v === 'object') return v.name || v.value || v.text || String(Object.values(v).find(x => typeof x === 'string') || '');
+    return String(v);
+  };
   const aliases = FIELD_ALIASES[header.toLowerCase()]||[];
   const keys = Object.keys(item);
   for (const alias of aliases) {
     const m = keys.find(k=>k.toLowerCase().replace(/[^a-z0-9]/g,'')=== alias.replace(/[^a-z0-9]/g,''));
-    if (m) return String(item[m]);
+    if (m !== undefined) return safeStr(item[m]);
   }
   const hn = header.toLowerCase().replace(/[^a-z0-9]/g,'');
+  // Loose match: only match if the field value is scalar (avoid matching wrapper keys like "markets" → array)
   const loose = keys.find(k=>{const kn=k.toLowerCase().replace(/[^a-z0-9]/g,'');return kn.includes(hn)||hn.includes(kn);});
-  return loose ? String(item[loose]) : '';
+  if (!loose) return '';
+  const v = item[loose];
+  if (Array.isArray(v) || (v && typeof v === 'object')) return ''; // skip — this is a container, not a field value
+  return safeStr(v);
 }
 
 // ── DOWNLOAD EXCEL ────────────────────────────────────────────────────────────
@@ -1612,6 +1628,7 @@ async function downloadExcel() {
   const d = publicData, a = d.assessor||{}, c = d.census||{}, bls = d.bls||{},
         t = d.treasury||{}, f = d.fema||{}, indot = d.indot||{};
   const co = c.county||{}, st = c.state||{}, nat = c.national||{};
+  const econ = a.econ||{};
   const ptype = getPropertyType();
   const NVstr = 'Verify Before Report';
   const CI = 'Pull From CoStar';
@@ -1961,8 +1978,11 @@ async function downloadExcel() {
               ws[ca] = Object.assign({}, ws[ca]||{}, {t:'n', v:n, w:String(n)});
             }
           };
-          wn(5, 10, st?.medHHIncome);  // Indiana 2023 (col K)
-          wn(6, 10, nat?.medHHIncome); // US 2023 (col K)
+          // Use Census API if available; fall back to AI-searched econ data
+          const stIncome  = st?.medHHIncome  || (econ?.stateMedianHHIncome    ? parseFloat(String(econ.stateMedianHHIncome).replace(/[^0-9.]/g,''))    : null);
+          const natIncome = nat?.medHHIncome || (econ?.nationalMedianHHIncome ? parseFloat(String(econ.nationalMedianHHIncome).replace(/[^0-9.]/g,'')) : null);
+          wn(5, 10, stIncome);   // Indiana 2023 (col K)
+          wn(6, 10, natIncome);  // US 2023 (col K)
         }
 
         XLSX.utils.book_append_sheet(wb, ws, shName);
